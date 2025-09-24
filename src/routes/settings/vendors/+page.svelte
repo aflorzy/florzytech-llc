@@ -2,6 +2,7 @@
   type Vendor = { id: string; name: string; type?: string | null; active: boolean };
   let { data } = $props<{ data: { vendors: Vendor[] } }>();
   let open = $state(false);
+  let editingId = $state<string | null>(null);
 </script>
 
 <h1 class="text-2xl font-semibold mb-4">Vendors</h1>
@@ -50,8 +51,34 @@
               {v.active ? 'Deactivate' : 'Activate'}
             </button>
           </form>
+          <button class="ml-2 px-2 py-1 rounded bg-yellow-600 text-white" onclick={() => (editingId = editingId === v.id ? null : v.id)}>Edit</button>
+          <form method="post" action="?/delete" class="inline ml-2" onsubmit={(e) => { if (!confirm('Archive this vendor? Existing records will still reference it.')) { e.preventDefault(); } }}>
+            <input type="hidden" name="id" value={v.id} />
+            <button class="px-2 py-1 rounded bg-orange-600 text-white">Archive</button>
+          </form>
         </td>
       </tr>
+      {#if editingId === v.id}
+        <tr class="bg-zinc-50/50 dark:bg-zinc-800/30">
+          <td colspan="4" class="p-3">
+            <form method="post" action="?/update" class="grid gap-3 md:grid-cols-3">
+              <input type="hidden" name="id" value={v.id} />
+              <div>
+                <label class="block text-sm" for={`name-${v.id}`}>Name</label>
+                <input id={`name-${v.id}`} name="name" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={v.name} required />
+              </div>
+              <div>
+                <label class="block text-sm" for={`type-${v.id}`}>Type</label>
+                <input id={`type-${v.id}`} name="type" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={v.type || ''} />
+              </div>
+              <div class="md:col-span-3 flex gap-2">
+                <button class="px-3 py-2 rounded bg-green-600 text-white">Save</button>
+                <button class="px-3 py-2 rounded bg-zinc-300 dark:bg-zinc-700" onclick={(e) => { e.preventDefault(); editingId = null; }}>Cancel</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+      {/if}
     {/each}
   </tbody>
 </table>

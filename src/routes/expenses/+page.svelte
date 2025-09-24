@@ -31,6 +31,7 @@
     return `${yyyy}-${mm}-${dd}`;
   }
   let open = $state(false);
+  let editingId = $state<string | null>(null);
 </script>
 
 <h1 class="text-2xl font-semibold mb-4">Expenses</h1>
@@ -108,6 +109,7 @@
       <th class="p-2">Vendor</th>
       <th class="p-2">Device</th>
       <th class="p-2">Notes</th>
+      <th class="p-2">Actions</th>
     </tr>
   </thead>
   <tbody>
@@ -119,7 +121,74 @@
         <td class="p-2">{e.vendor?.name || '-'}</td>
         <td class="p-2">{e.device ? `${e.device.sku} — ${e.device.make} ${e.device.model}` : '-'}</td>
         <td class="p-2">{e.notes || '-'}</td>
+        <td class="p-2">
+          <button class="px-2 py-1 rounded bg-yellow-600 text-white" onclick={() => (editingId = editingId === e.id ? null : e.id)}>Edit</button>
+          <form method="post" action="?/delete" class="inline ml-2" onsubmit={(ev) => { if (!confirm('Archive this expense? You can restore it later via the database.')) { ev.preventDefault(); } }}>
+            <input type="hidden" name="id" value={e.id} />
+            <button class="px-2 py-1 rounded bg-orange-600 text-white">Archive</button>
+          </form>
+        </td>
       </tr>
+      {#if editingId === e.id}
+        <tr class="bg-zinc-50/50 dark:bg-zinc-800/30">
+          <td colspan="7" class="p-3">
+            <form method="post" action="?/update" class="grid gap-3 md:grid-cols-3">
+              <input type="hidden" name="id" value={e.id} />
+              <div>
+                <label class="block text-sm" for={`date-${e.id}`}>Date</label>
+                <input id={`date-${e.id}`} name="date" type="date" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={new Date(e.date).toISOString().slice(0,10)} />
+              </div>
+              <div>
+                <label class="block text-sm" for={`amount-${e.id}`}>Amount (USD)</label>
+                <input id={`amount-${e.id}`} name="amount" type="number" step="0.01" min="0" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={(e.amountCents/100).toFixed(2)} />
+              </div>
+              <div>
+                <label class="block text-sm" for={`categoryId-${e.id}`}>Category</label>
+                <select id={`categoryId-${e.id}`} name="categoryId" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900">
+                  {#each data.categories as c}
+                    <option value={c.id} selected={e.category?.id === c.id}>{c.name}</option>
+                  {/each}
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm" for={`vendorId-${e.id}`}>Vendor</label>
+                <select id={`vendorId-${e.id}`} name="vendorId" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900">
+                  <option value="" selected={!e.vendor}>-</option>
+                  {#each data.vendors as v}
+                    <option value={v.id} selected={e.vendor?.id === v.id}>{v.name}</option>
+                  {/each}
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm" for={`paymentMethodId-${e.id}`}>Payment Method</label>
+                <select id={`paymentMethodId-${e.id}`} name="paymentMethodId" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900">
+                  <option value="" selected={!e.paymentMethod}>-</option>
+                  {#each data.paymentMethods as m}
+                    <option value={m.id} selected={e.paymentMethod?.id === m.id}>{m.name}</option>
+                  {/each}
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm" for={`deviceId-${e.id}`}>Device</label>
+                <select id={`deviceId-${e.id}`} name="deviceId" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900">
+                  <option value="" selected={!e.device}>-</option>
+                  {#each data.devices as d}
+                    <option value={d.id} selected={e.device?.id === d.id}>{d.sku} — {d.make} {d.model}</option>
+                  {/each}
+                </select>
+              </div>
+              <div class="md:col-span-3">
+                <label class="block text-sm" for={`notes-${e.id}`}>Notes</label>
+                <textarea id={`notes-${e.id}`} name="notes" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900">{e.notes || ''}</textarea>
+              </div>
+              <div class="md:col-span-3 flex gap-2">
+                <button class="px-3 py-2 rounded bg-green-600 text-white">Save</button>
+                <button class="px-3 py-2 rounded bg-zinc-300 dark:bg-zinc-700" onclick={(ev) => { ev.preventDefault(); editingId = null; }}>Cancel</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+      {/if}
     {/each}
   </tbody>
 </table>

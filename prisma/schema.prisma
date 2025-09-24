@@ -33,6 +33,7 @@ model Device {
   id        String   @id @default(uuid())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  archivedAt DateTime?
 
   sku                String       @unique
   make               String
@@ -56,6 +57,7 @@ model Vendor {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  archivedAt DateTime?
 
   expenses Expense[]
 }
@@ -89,6 +91,7 @@ model Expense {
   id        String   @id @default(uuid())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  archivedAt DateTime?
 
   date        DateTime
   amountCents Int
@@ -111,6 +114,7 @@ model Income {
   id        String   @id @default(uuid())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  archivedAt DateTime?
 
   date        DateTime
   type        IncomeType
@@ -134,6 +138,7 @@ model Part {
   id        String   @id @default(uuid())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  archivedAt DateTime?
 
   name          String
   sku           String? @unique

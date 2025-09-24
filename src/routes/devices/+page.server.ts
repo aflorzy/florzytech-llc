@@ -9,6 +9,7 @@ function toCents(v: FormDataEntryValue | null) {
 
 export const load: PageServerLoad = async () => {
   const devices = await prisma.device.findMany({
+    where: { archivedAt: null },
     orderBy: { createdAt: 'desc' }
   });
   return { devices };
@@ -48,5 +49,32 @@ export const actions: Actions = {
     });
 
     return { success: true, device };
+  },
+  update: async ({ request }) => {
+    const form = await request.formData();
+    const id = String(form.get('id') || '');
+    if (!id) return { success: false, error: 'Missing id' };
+
+    const make = (String(form.get('make') || '')).trim();
+    const model = (String(form.get('model') || '')).trim();
+    const serial = (String(form.get('serial') || '')).trim() || null;
+    const source = (String(form.get('source') || '')).trim() || null;
+    const condition = (String(form.get('condition') || '')).trim() || null;
+    const notes = (String(form.get('notes') || '')).trim() || null;
+    const purchasePriceCents = toCents(form.get('purchasePrice'));
+
+    await prisma.device.update({
+      where: { id },
+      data: { make, model, serial, source, condition, notes, purchasePriceCents }
+    });
+
+    return { success: true, id };
+  },
+  delete: async ({ request }) => {
+    const form = await request.formData();
+    const id = String(form.get('id') || '');
+    if (!id) return { success: false, error: 'Missing id' };
+    await prisma.device.update({ where: { id }, data: { archivedAt: new Date() } });
+    return { success: true, id };
   }
 };

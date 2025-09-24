@@ -1,0 +1,145 @@
+// Prisma schema for FlorzyTech Tracker
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum IncomeType {
+  SALE
+  SERVICE
+  DEPOSIT
+}
+
+enum DeviceStatus {
+  PURCHASED
+  AWAITING_SHIPMENT
+  ARRIVED
+  DIAGNOSING
+  WAITING_PARTS
+  REPAIRING
+  READY
+  LISTED
+  SOLD
+  SHIPPED
+  DELIVERED
+}
+
+model Device {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sku                String       @unique
+  make               String
+  model              String
+  serial             String?
+  purchasePriceCents Int          @default(0)
+  purchaseDate       DateTime?
+  source             String? // Freeform or future relation to Vendor
+  condition          String?
+  notes              String?
+  status             DeviceStatus @default(PURCHASED)
+
+  expenses Expense[]
+  incomes  Income[]
+}
+
+model Vendor {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  type      String? // e.g., marketplace, local_store, supplier
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  expenses Expense[]
+}
+
+model SalesChannel {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  incomes Income[]
+}
+
+model Category {
+  id      String    @id @default(uuid())
+  name    String    @unique
+  kind    String // 'expense' or 'income' for future proofing
+  active  Boolean   @default(true)
+  Expense Expense[]
+}
+
+model PaymentMethod {
+  id      String    @id @default(uuid())
+  name    String    @unique
+  active  Boolean   @default(true)
+  Expense Expense[]
+}
+
+model Expense {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  date        DateTime
+  amountCents Int
+  notes       String?
+
+  category   Category @relation(fields: [categoryId], references: [id])
+  categoryId String
+
+  vendor   Vendor? @relation(fields: [vendorId], references: [id])
+  vendorId String?
+
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  paymentMethodId String?
+
+  device   Device? @relation(fields: [deviceId], references: [id])
+  deviceId String?
+}
+
+model Income {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  date        DateTime
+  type        IncomeType
+  amountCents Int
+  notes       String?
+
+  channel   SalesChannel? @relation(fields: [channelId], references: [id])
+  channelId String?
+
+  device   Device? @relation(fields: [deviceId], references: [id])
+  deviceId String?
+
+  platformFeesCents    Int @default(0)
+  paymentFeesCents     Int @default(0)
+  shippingRevenueCents Int @default(0)
+  shippingCostCents    Int @default(0)
+  taxCollectedCents    Int @default(0)
+}
+
+model Part {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  name          String
+  sku           String? @unique
+  partNumber    String?
+  quantity      Int     @default(0)
+  unitCostCents Int? // optional tracking of average unit cost
+  notes         String?
+  url           String?
+}

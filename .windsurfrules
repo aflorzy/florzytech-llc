@@ -1,0 +1,3 @@
+- Fix linting errors and warnings
+- Do not use `any` type - create interfaces or use inline types when necessary
+- Create DB migrations for all schema updates

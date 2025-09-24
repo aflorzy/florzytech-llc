@@ -1,0 +1,24 @@
+# Future Features Roadmap
+
+- [ ] Work Orders (repairs) entity
+  - Link parts consumed per device/work order
+  - Auto-deduct part inventory quantities based on items used
+  - Manual adjustments remain available
+  - Labor line items and standard service fee templates
+- [ ] Invoicing
+  - PDF invoices
+  - Customers (contact info)
+  - Deposits applied to invoice totals
+- [ ] Attachments
+  - Photos for devices and receipts for expenses
+- [ ] Barcode/QR support
+  - Generate/scan labels for devices and parts
+- [ ] Imports/Exports
+  - CSV export for devices, expenses, income
+  - CSV import for bootstrap/migration
+- [ ] User authentication (if multi-user later)
+- [ ] Dashboard improvements
+  - Profit trends, category breakdowns, channel performance
+- [ ] Parts purchasing workflows
+  - Purchase orders; vendor management
+- [ ] Docker packaging + CI/CD

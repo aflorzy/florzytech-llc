@@ -16,6 +16,21 @@
   let formOpen = $state(false);
   let editingId = $state<string | null>(null);
   let editing = $derived((data.devices.find((d) => d.id === editingId) ?? null) as DeviceListItem | null);
+
+  const deviceStatuses = [
+    'PURCHASED',
+    'AWAITING_SHIPMENT',
+    'ARRIVED',
+    'DIAGNOSING',
+    'WAITING_PARTS',
+    'REPAIRING',
+    'READY',
+    'LISTED',
+    'SOLD',
+    'SHIPPED',
+    'DELIVERED'
+  ] as const;
+  type DeviceStatusType = typeof deviceStatuses[number];
 </script>
 
 <h1 class="text-2xl font-semibold mb-4">Devices</h1>
@@ -80,7 +95,16 @@
         <td class="p-2">{d.make} {d.model}</td>
         <td class="p-2">{d.serial || '-'}</td>
         <td class="p-2">${(d.purchasePriceCents / 100).toFixed(2)}</td>
-        <td class="p-2">{d.status}</td>
+        <td class="p-2">
+          <form method="post" action="?/update" class="inline">
+            <input type="hidden" name="id" value={d.id} />
+            <select name="status" class="h-8 px-2 py-1 border rounded bg-white dark:bg-zinc-900" onchange={(e) => { (e.currentTarget as HTMLSelectElement).form?.requestSubmit(); }}>
+              {#each deviceStatuses as s}
+                <option value={s} selected={d.status === s}>{s.replaceAll('_', ' ')}</option>
+              {/each}
+            </select>
+          </form>
+        </td>
         <td class="p-2">{new Date(d.createdAt).toLocaleDateString()}</td>
         <td class="p-2">
           <div class="flex items-center gap-2">
@@ -123,6 +147,14 @@
         <div>
           <label class="block text-sm" for={`model-${editing.id}`}>Model</label>
           <input id={`model-${editing.id}`} name="model" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={editing.model} required />
+        </div>
+        <div>
+          <label class="block text-sm" for={`status-${editing.id}`}>Status</label>
+          <select id={`status-${editing.id}`} name="status" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900">
+            {#each deviceStatuses as s}
+              <option value={s} selected={editing.status === s}>{s.replaceAll('_', ' ')}</option>
+            {/each}
+          </select>
         </div>
         <div>
           <label class="block text-sm" for={`serial-${editing.id}`}>Serial/IMEI</label>

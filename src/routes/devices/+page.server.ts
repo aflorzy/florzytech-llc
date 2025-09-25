@@ -1,6 +1,7 @@
 import type { Actions, PageServerLoad } from './$types';
 import { prisma } from '$lib/server/prisma';
 import { buildSku } from '$lib/sku';
+import { DeviceStatus } from '@prisma/client';
 
 function toCents(v: FormDataEntryValue | null) {
   const n = typeof v === 'string' ? parseFloat(v) : 0;
@@ -62,11 +63,46 @@ export const actions: Actions = {
     const condition = (String(form.get('condition') || '')).trim() || null;
     const notes = (String(form.get('notes') || '')).trim() || null;
     const purchasePriceCents = toCents(form.get('purchasePrice'));
+    const statusRaw = (String(form.get('status') || '')).trim();
+    let status: DeviceStatus | undefined = undefined;
+    if (statusRaw) {
+      if (!(statusRaw in DeviceStatus)) {
+        return { success: false, error: 'Invalid status' };
+      }
+      status = DeviceStatus[statusRaw as keyof typeof DeviceStatus];
+    }
 
-    await prisma.device.update({
-      where: { id },
-      data: { make, model, serial, source, condition, notes, purchasePriceCents }
-    });
+    const data: {
+      make?: string;
+      model?: string;
+      serial?: string | null;
+      source?: string | null;
+      condition?: string | null;
+      notes?: string | null;
+      purchasePriceCents?: number;
+      status?: DeviceStatus;
+    } = {};
+
+    if (form.has('make')) {
+      if (!make) return { success: false, error: 'Make is required' };
+      data.make = make;
+    }
+    if (form.has('model')) {
+      if (!model) return { success: false, error: 'Model is required' };
+      data.model = model;
+    }
+    if (form.has('serial')) data.serial = serial;
+    if (form.has('source')) data.source = source;
+    if (form.has('condition')) data.condition = condition;
+    if (form.has('notes')) data.notes = notes;
+    if (form.has('purchasePrice')) data.purchasePriceCents = purchasePriceCents;
+    if (status) data.status = status;
+
+    if (Object.keys(data).length === 0) {
+      return { success: false, error: 'No fields to update' };
+    }
+
+    await prisma.device.update({ where: { id }, data });
 
     return { success: true, id };
   },

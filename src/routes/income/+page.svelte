@@ -1,6 +1,7 @@
 <script lang="ts">
   type DeviceRef = { id: string; sku: string; make: string; model: string };
   type Channel = { id: string; name: string };
+  type Category = { id: string; name: string };
   type IncomeRow = {
     id: string;
     date: string | Date;
@@ -9,8 +10,9 @@
     notes?: string | null;
     channel?: Channel | null;
     device?: DeviceRef | null;
+    category?: Category | null;
   };
-  let { data } = $props<{ data: { income: IncomeRow[]; channels: Channel[]; devices: DeviceRef[] } }>();
+  let { data } = $props<{ data: { income: IncomeRow[]; channels: Channel[]; devices: DeviceRef[]; categories: Category[] } }>();
 
   function todayLocal(): string {
     const d = new Date();
@@ -59,6 +61,16 @@
         {/each}
       </select>
       <p class="text-xs text-zinc-500 mt-1">Optional. Attach the income to a device so it’s reflected in that device’s profit summary.</p>
+    </div>
+    <div>
+      <label class="block text-sm" for="categoryId">Category</label>
+      <select id="categoryId" name="categoryId" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900">
+        <option value="">-</option>
+        {#each data.categories as c}
+          <option value={c.id}>{c.name}</option>
+        {/each}
+      </select>
+      <p class="text-xs text-zinc-500 mt-1">Optional. Tag the income with a category for reporting.</p>
     </div>
     <div>
       <label class="block text-sm" for="channelId">Channel</label>
@@ -112,6 +124,7 @@
       <th class="p-2">Type</th>
       <th class="p-2">Amount</th>
       <th class="p-2">Device</th>
+      <th class="p-2">Category</th>
       <th class="p-2">Channel</th>
       <th class="p-2">Notes</th>
       <th class="p-2">Actions</th>
@@ -124,6 +137,7 @@
         <td class="p-2">{r.type}</td>
         <td class="p-2">${(r.amountCents/100).toFixed(2)}</td>
         <td class="p-2">{r.device ? `${r.device.sku} — ${r.device.make} ${r.device.model}` : '-'}</td>
+        <td class="p-2">{r.category?.name || '-'}</td>
         <td class="p-2">{r.channel?.name || '-'}</td>
         <td class="p-2">{r.notes || '-'}</td>
         <td class="p-2">
@@ -146,7 +160,7 @@
       </tr>
       {#if editingId === r.id}
         <tr class="bg-zinc-50/50 dark:bg-zinc-800/30">
-          <td colspan="7" class="p-3">
+          <td colspan="8" class="p-3">
             <form method="post" action="?/update" class="grid gap-3 md:grid-cols-3">
               <input type="hidden" name="id" value={r.id} />
               <div>
@@ -171,6 +185,15 @@
                   <option value="" selected={!r.device}>-</option>
                   {#each data.devices as d}
                     <option value={d.id} selected={r.device?.id === d.id}>{d.sku} — {d.make} {d.model}</option>
+                  {/each}
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm" for={`categoryId-${r.id}`}>Category</label>
+                <select id={`categoryId-${r.id}`} name="categoryId" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900">
+                  <option value="" selected={!r.category}>-</option>
+                  {#each data.categories as c}
+                    <option value={c.id} selected={r.category?.id === c.id}>{c.name}</option>
                   {/each}
                 </select>
               </div>

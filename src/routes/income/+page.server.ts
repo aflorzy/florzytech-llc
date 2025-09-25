@@ -15,17 +15,18 @@ function parseLocalDate(v: FormDataEntryValue | null): Date {
 }
 
 export const load: PageServerLoad = async () => {
-  const [income, channels, devices] = await Promise.all([
+  const [income, channels, devices, categories] = await Promise.all([
     prisma.income.findMany({
       where: { archivedAt: null },
       orderBy: { date: 'desc' },
       take: 100,
-      include: { channel: true, device: true }
+      include: { channel: true, device: true, category: true }
     }),
     prisma.salesChannel.findMany({ where: { active: true }, orderBy: { name: 'asc' } }),
-    prisma.device.findMany({ where: { archivedAt: null }, orderBy: { createdAt: 'desc' }, take: 100 })
+    prisma.device.findMany({ where: { archivedAt: null }, orderBy: { createdAt: 'desc' }, take: 100 }),
+    prisma.category.findMany({ where: { kind: 'income', active: true }, orderBy: { name: 'asc' } })
   ]);
-  return { income, channels, devices };
+  return { income, channels, devices, categories };
 };
 
 export const actions: Actions = {
@@ -36,6 +37,7 @@ export const actions: Actions = {
     const amountCents = toCents(form.get('amount'));
     const deviceId = String(form.get('deviceId') || '') || null;
     const channelId = String(form.get('channelId') || '') || null;
+    const categoryId = String(form.get('categoryId') || '') || null;
     const platformFeesCents = toCents(form.get('platformFees'));
     const paymentFeesCents = toCents(form.get('paymentFees'));
     const shippingRevenueCents = toCents(form.get('shippingRevenue'));
@@ -50,6 +52,7 @@ export const actions: Actions = {
         amountCents,
         deviceId,
         channelId,
+        categoryId,
         platformFeesCents,
         paymentFeesCents,
         shippingRevenueCents,
@@ -71,6 +74,7 @@ export const actions: Actions = {
     const amountCents = toCents(form.get('amount'));
     const deviceId = String(form.get('deviceId') || '') || null;
     const channelId = String(form.get('channelId') || '') || null;
+    const categoryId = String(form.get('categoryId') || '') || null;
     const platformFeesCents = toCents(form.get('platformFees'));
     const paymentFeesCents = toCents(form.get('paymentFees'));
     const shippingRevenueCents = toCents(form.get('shippingRevenue'));
@@ -86,6 +90,7 @@ export const actions: Actions = {
         amountCents,
         deviceId,
         channelId,
+        categoryId,
         platformFeesCents,
         paymentFeesCents,
         shippingRevenueCents,

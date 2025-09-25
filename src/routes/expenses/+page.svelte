@@ -100,15 +100,15 @@
   </form>
 {/if}
 
-<table class="w-full text-sm border divide-y">
+<table class="w-full text-sm border divide-y table-fixed">
   <thead>
     <tr class="text-left bg-zinc-50 dark:bg-zinc-800">
       <th class="p-2">Date</th>
       <th class="p-2">Amount</th>
       <th class="p-2">Category</th>
       <th class="p-2">Vendor</th>
-      <th class="p-2">Device</th>
-      <th class="p-2">Notes</th>
+      <th class="p-2 w-64">Device</th>
+      <th class="p-2 w-80">Notes</th>
       <th class="p-2">Actions</th>
     </tr>
   </thead>
@@ -119,14 +119,36 @@
         <td class="p-2">${(e.amountCents/100).toFixed(2)}</td>
         <td class="p-2">{e.category?.name}</td>
         <td class="p-2">{e.vendor?.name || '-'}</td>
-        <td class="p-2">{e.device ? `${e.device.sku} — ${e.device.make} ${e.device.model}` : '-'}</td>
-        <td class="p-2">{e.notes || '-'}</td>
+        <td class="p-2 align-top">
+          {#if e.device}
+            {#key e.device.id}
+              <div class="truncate" title={`${e.device.sku} — ${e.device.make} ${e.device.model}`}>
+                {e.device.sku} — {e.device.make} {e.device.model}
+              </div>
+            {/key}
+          {:else}
+            -
+          {/if}
+        </td>
+        <td class="p-2 align-top">
+          <div class="truncate" title={e.notes || ''}>{e.notes || '-'}</div>
+        </td>
         <td class="p-2">
-          <button class="px-2 py-1 rounded bg-yellow-600 text-white" onclick={() => (editingId = editingId === e.id ? null : e.id)}>Edit</button>
-          <form method="post" action="?/delete" class="inline ml-2" onsubmit={(ev) => { if (!confirm('Archive this expense? You can restore it later via the database.')) { ev.preventDefault(); } }}>
-            <input type="hidden" name="id" value={e.id} />
-            <button class="px-2 py-1 rounded bg-orange-600 text-white">Archive</button>
-          </form>
+          <div class="flex items-center gap-2">
+            <button class="h-8 w-8 inline-flex items-center justify-center rounded bg-yellow-600 text-white hover:opacity-90" title="Edit" aria-label="Edit" onclick={() => (editingId = editingId === e.id ? null : e.id)}>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
+                <path d="M16.862 3.487a1.5 1.5 0 0 1 2.121 2.121l-1.06 1.06-2.122-2.12 1.061-1.06ZM14.68 5.669 4.5 15.85V19.5h3.65L18.33 9.319l-3.65-3.65Z"/>
+              </svg>
+            </button>
+            <form method="post" action="?/delete" class="inline" onsubmit={(ev) => { if (!confirm('Archive this expense? You can restore it later via the database.')) { ev.preventDefault(); } }}>
+              <input type="hidden" name="id" value={e.id} />
+              <button class="h-8 w-8 inline-flex items-center justify-center rounded bg-orange-600 text-white hover:opacity-90" title="Archive" aria-label="Archive">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
+                  <path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2H3V7Zm1 4h16v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7Zm5 2v2h6v-2H9Z"/>
+                </svg>
+              </button>
+            </form>
+          </div>
         </td>
       </tr>
       {#if editingId === e.id}

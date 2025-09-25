@@ -78,6 +78,7 @@ model Category {
   kind    String // 'expense' or 'income' for future proofing
   active  Boolean   @default(true)
   Expense Expense[]
+  Income  Income[]
 }
 
 model PaymentMethod {
@@ -126,6 +127,10 @@ model Income {
 
   device   Device? @relation(fields: [deviceId], references: [id])
   deviceId String?
+
+  // Optional categorization for income
+  category   Category? @relation(fields: [categoryId], references: [id])
+  categoryId String?
 
   platformFeesCents    Int @default(0)
   paymentFeesCents     Int @default(0)

@@ -22,3 +22,4 @@
 - [ ] Parts purchasing workflows
   - Purchase orders; vendor management
 - [ ] Docker packaging + CI/CD
+- [ ] Ability to add/edit/delete payment methods (PayPal)

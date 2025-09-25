@@ -15,7 +15,7 @@
   let { data } = $props<{ data: { devices: DeviceListItem[] } }>();
   let formOpen = $state(false);
   let editingId = $state<string | null>(null);
-  let editing = $derived((data.devices.find((d) => d.id === editingId) ?? null) as DeviceListItem | null);
+  let editing = $derived((data.devices.find((d: DeviceListItem) => d.id === editingId) ?? null) as DeviceListItem | null);
 
   const deviceStatuses = [
     'PURCHASED',
@@ -100,7 +100,7 @@
             <input type="hidden" name="id" value={d.id} />
             <select name="status" class="h-8 px-2 py-1 border rounded bg-white dark:bg-zinc-900" onchange={(e) => { (e.currentTarget as HTMLSelectElement).form?.requestSubmit(); }}>
               {#each deviceStatuses as s}
-                <option value={s} selected={d.status === s}>{s.replaceAll('_', ' ')}</option>
+                <option value={s} selected={d.status === s}>{s.split('_').join(' ')}</option>
               {/each}
             </select>
           </form>
@@ -130,7 +130,7 @@
 
 {#if editing}
   <div class="fixed inset-0 z-20 flex items-center justify-center">
-    <div class="absolute inset-0 bg-black/50" onclick={() => (editingId = null)}></div>
+    <div class="absolute inset-0 bg-black/50" role="button" tabindex="0" aria-label="Close edit dialog" onclick={() => (editingId = null)} onkeydown={(e) => { const k = (e as KeyboardEvent).key; if (k === 'Enter' || k === ' ' || k === 'Escape') { editingId = null; } }}></div>
     <div class="relative z-30 w-full max-w-3xl mx-4 bg-white dark:bg-zinc-900 border rounded shadow p-4">
       <div class="flex items-center justify-between mb-2">
         <h2 class="text-lg font-semibold">Edit Device — {editing.sku}</h2>
@@ -152,7 +152,7 @@
           <label class="block text-sm" for={`status-${editing.id}`}>Status</label>
           <select id={`status-${editing.id}`} name="status" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900">
             {#each deviceStatuses as s}
-              <option value={s} selected={editing.status === s}>{s.replaceAll('_', ' ')}</option>
+              <option value={s} selected={editing.status === s}>{s.split('_').join(' ')}</option>
             {/each}
           </select>
         </div>

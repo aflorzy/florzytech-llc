@@ -29,6 +29,12 @@ enum DeviceStatus {
   DELIVERED
 }
 
+enum AllocationMethod {
+  PROPORTIONAL_SUBTOTAL
+  EVEN
+  MANUAL
+}
+
 model Device {
   id        String   @id @default(uuid())
   createdAt DateTime @default(now())
@@ -96,6 +102,13 @@ model Expense {
 
   date        DateTime
   amountCents Int
+  // Allocation breakdown (for split receipts)
+  subtotalCents   Int      @default(0)
+  taxCents        Int      @default(0)
+  shippingCents   Int      @default(0)
+  otherFeesCents  Int      @default(0)
+  splitGroupId    String?
+  allocationMethod AllocationMethod?
   notes       String?
 
   category   Category @relation(fields: [categoryId], references: [id])

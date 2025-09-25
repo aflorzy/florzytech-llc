@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { previewAllocation, type AllocationMethod } from '$lib/allocation';
   type Category = { id: string; name: string };
   type Vendor = { id: string; name: string };
   type PaymentMethod = { id: string; name: string };
@@ -32,13 +33,62 @@
   }
   let open = $state(false);
   let editingId = $state<string | null>(null);
+
+  // Split Receipt modal state
+  let splitOpen = $state(false);
+  type SplitLine = { categoryId: string; deviceId?: string | null; notes?: string | null; subtotalCents: number; taxCents?: number; shippingCents?: number; otherFeesCents?: number };
+  let splitDate = $state<string>('');
+  let splitVendorId = $state<string | null>(null);
+  let splitPaymentMethodId = $state<string | null>(null);
+  let splitReceiptNotes = $state<string>('');
+  let splitMethod = $state<AllocationMethod>('PROPORTIONAL_SUBTOTAL');
+  let splitTotals = $state({ totalTaxCents: 0, totalShippingCents: 0, totalOtherFeesCents: 0 });
+  let splitLines = $state<SplitLine[]>([]);
+
+  function usdToCents(v: string): number { const n = parseFloat(v); return Math.round((n || 0) * 100); }
+  function centsToUsd(n: number): string { return ((n || 0) / 100).toFixed(2); }
+  function addSplitLine() {
+    const firstCat = data.categories[0]?.id || '';
+    splitLines = [...splitLines, { categoryId: firstCat, deviceId: null, notes: '', subtotalCents: 0 }];
+  }
+  function removeSplitLine(idx: number) {
+    splitLines = splitLines.filter((_, i) => i !== idx);
+  }
+  const allocPreview = $derived(previewAllocation(splitMethod, splitLines.map(l => ({ subtotalCents: l.subtotalCents })), splitTotals));
+  if (!splitDate) splitDate = todayLocal();
+
+  async function submitSplit() {
+    const payload = {
+      date: splitDate,
+      vendorId: splitVendorId || null,
+      paymentMethodId: splitPaymentMethodId || null,
+      receiptNotes: splitReceiptNotes || null,
+      allocationMethod: splitMethod,
+      totals: splitTotals,
+      lines: splitLines
+    };
+    const res = await fetch('/expenses/split', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.success) {
+      alert(j.error || 'Failed to save split receipt');
+      return;
+    }
+    splitOpen = false;
+    location.reload();
+  }
 </script>
 
 <h1 class="text-2xl font-semibold mb-4">Expenses</h1>
 
-<button class="mb-4 px-3 py-2 rounded bg-blue-600 text-white" onclick={() => (open = !open)}>
-  {open ? 'Close' : 'Add Expense'}
-</button>
+<div class="flex items-center gap-2 mb-4">
+  <button class="px-3 py-2 rounded bg-blue-600 text-white" onclick={() => (open = !open)}>
+    {open ? 'Close' : 'Add Expense'}
+  </button>
+  <button class="px-3 py-2 rounded bg-purple-700 text-white" onclick={() => { splitOpen = true; if (splitLines.length === 0) addSplitLine(); }}>
+    Split Receipt
+  </button>
+  <span class="text-xs text-zinc-500">Create multiple expenses from one invoice with allocated tax/shipping/fees.</span>
+  </div>
 
 {#if open}
   <form method="post" action="?/create" class="grid gap-3 md:grid-cols-3 p-4 border rounded mb-6">
@@ -98,6 +148,136 @@
       <button class="px-3 py-2 rounded bg-green-600 text-white">Save Expense</button>
     </div>
   </form>
+{/if}
+
+{#if splitOpen}
+  <div class="fixed inset-0 bg-black/60 z-40" role="button" tabindex="0" aria-label="Close split receipt dialog" onclick={() => (splitOpen = false)} onkeydown={(e) => { const k = (e as KeyboardEvent).key; if (k === 'Enter' || k === ' ' || k === 'Escape') { splitOpen = false; } }}></div>
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="w-full max-w-5xl bg-white dark:bg-zinc-900 border rounded shadow-lg" onclick={(e) => e.stopPropagation()}>
+      <div class="p-4 border-b flex items-center justify-between">
+        <h2 class="text-lg font-semibold">Split Receipt</h2>
+        <button class="px-2 py-1 rounded bg-zinc-200 dark:bg-zinc-700" onclick={() => (splitOpen = false)}>Close</button>
+      </div>
+      <div class="p-4 grid gap-3 md:grid-cols-4">
+        <div>
+          <label class="block text-sm" for="split-date">Date</label>
+          <input id="split-date" type="date" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={splitDate} />
+        </div>
+        <div>
+          <label class="block text-sm" for="split-vendor">Vendor</label>
+          <select id="split-vendor" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={splitVendorId}>
+            <option value={null}>-</option>
+            {#each data.vendors as v}
+              <option value={v.id}>{v.name}</option>
+            {/each}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm" for="split-pm">Payment Method</label>
+          <select id="split-pm" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={splitPaymentMethodId}>
+            <option value={null}>-</option>
+            {#each data.paymentMethods as m}
+              <option value={m.id}>{m.name}</option>
+            {/each}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm" for="split-method">Allocation Method</label>
+          <select id="split-method" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={splitMethod}>
+            <option value="PROPORTIONAL_SUBTOTAL">Proportional by Subtotal</option>
+            <option value="EVEN">Even Split</option>
+            <option value="MANUAL">Manual</option>
+          </select>
+        </div>
+        <div class="md:col-span-4 grid gap-3 md:grid-cols-4">
+          <div>
+            <label class="block text-sm" for="split-tax">Invoice Tax (USD)</label>
+            <input id="split-tax" type="number" step="0.01" min="0" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={centsToUsd(splitTotals.totalTaxCents)} onchange={(e) => splitTotals = { ...splitTotals, totalTaxCents: usdToCents((e.target as HTMLInputElement).value) }} />
+          </div>
+          <div>
+            <label class="block text-sm" for="split-ship">Invoice Shipping (USD)</label>
+            <input id="split-ship" type="number" step="0.01" min="0" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={centsToUsd(splitTotals.totalShippingCents)} onchange={(e) => splitTotals = { ...splitTotals, totalShippingCents: usdToCents((e.target as HTMLInputElement).value) }} />
+          </div>
+          <div>
+            <label class="block text-sm" for="split-fees">Other Fees (USD)</label>
+            <input id="split-fees" type="number" step="0.01" min="0" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={centsToUsd(splitTotals.totalOtherFeesCents)} onchange={(e) => splitTotals = { ...splitTotals, totalOtherFeesCents: usdToCents((e.target as HTMLInputElement).value) }} />
+          </div>
+          <div>
+            <label class="block text-sm" for="split-notes">Receipt Notes</label>
+            <input id="split-notes" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={splitReceiptNotes} />
+          </div>
+        </div>
+      </div>
+      <div class="p-4">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="font-semibold">Items</h3>
+          <button class="px-2 py-1 rounded bg-blue-600 text-white" onclick={() => addSplitLine()}>Add Line</button>
+        </div>
+        <div class="overflow-auto border rounded">
+          <table class="w-full text-sm border divide-y table-fixed">
+            <thead>
+              <tr class="bg-zinc-50 dark:bg-zinc-800 text-left">
+                <th class="p-2">Category</th>
+                <th class="p-2">Device</th>
+                <th class="p-2">Notes</th>
+                <th class="p-2">Subtotal (USD)</th>
+                {#if splitMethod === 'MANUAL'}
+                  <th class="p-2">Tax (USD)</th>
+                  <th class="p-2">Shipping (USD)</th>
+                  <th class="p-2">Fees (USD)</th>
+                {/if}
+                <th class="p-2">Loaded Total</th>
+                <th class="p-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each splitLines as ln, i}
+                <tr class="divide-x">
+                  <td class="p-2">
+                    <select class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" bind:value={ln.categoryId}>
+                      {#each data.categories as c}
+                        <option value={c.id}>{c.name}</option>
+                      {/each}
+                    </select>
+                  </td>
+                  <td class="p-2">
+                    <select class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" bind:value={ln.deviceId}>
+                      <option value={null}>-</option>
+                      {#each data.devices as d}
+                        <option value={d.id}>{d.sku} — {d.make} {d.model}</option>
+                      {/each}
+                    </select>
+                  </td>
+                  <td class="p-2"><input class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" bind:value={ln.notes} /></td>
+                  <td class="p-2">
+                    <input class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" value={centsToUsd(ln.subtotalCents)} onchange={(e) => { ln.subtotalCents = usdToCents((e.target as HTMLInputElement).value); splitLines = [...splitLines]; }} />
+                  </td>
+                  {#if splitMethod === 'MANUAL'}
+                    <td class="p-2"><input class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" value={centsToUsd(ln.taxCents || 0)} onchange={(e) => { ln.taxCents = usdToCents((e.target as HTMLInputElement).value); splitLines = [...splitLines]; }} /></td>
+                    <td class="p-2"><input class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" value={centsToUsd(ln.shippingCents || 0)} onchange={(e) => { ln.shippingCents = usdToCents((e.target as HTMLInputElement).value); splitLines = [...splitLines]; }} /></td>
+                    <td class="p-2"><input class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" value={centsToUsd(ln.otherFeesCents || 0)} onchange={(e) => { ln.otherFeesCents = usdToCents((e.target as HTMLInputElement).value); splitLines = [...splitLines]; }} /></td>
+                  {/if}
+                  <td class="p-2">
+                    {#if splitMethod === 'MANUAL'}
+                      {centsToUsd((ln.subtotalCents) + (ln.taxCents||0) + (ln.shippingCents||0) + (ln.otherFeesCents||0))}
+                    {:else}
+                      {centsToUsd(allocPreview[i]?.loadedTotalCents || 0)}
+                    {/if}
+                  </td>
+                  <td class="p-2">
+                    <button class="px-2 py-1 rounded bg-red-600 text-white" onclick={() => removeSplitLine(i)}>Remove</button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+        <div class="mt-3 flex items-center justify-end gap-2">
+          <button class="px-3 py-2 rounded bg-green-600 text-white" onclick={submitSplit}>Save Split</button>
+        </div>
+      </div>
+    </div>
+  </div>
 {/if}
 
 <table class="w-full text-sm border divide-y table-fixed">

@@ -5,12 +5,12 @@
     make: string;
     model: string;
     serial?: string | null;
-    purchasePriceCents: number;
     status: string;
     createdAt: string | Date;
     source?: string | null;
     condition?: string | null;
     notes?: string | null;
+    netCents: number;
   };
   let { data } = $props<{ data: { devices: DeviceListItem[] } }>();
   let formOpen = $state(false);
@@ -61,11 +61,7 @@
       <label class="block text-sm" for="condition">Condition</label>
       <input id="condition" name="condition" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" />
     </div>
-    <div>
-      <label class="block text-sm" for="purchasePrice">Purchase Price (USD)</label>
-      <input id="purchasePrice" name="purchasePrice" type="number" step="0.01" min="0" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" />
-      <p class="text-xs text-zinc-500 mt-1">Acquisition cost of the device. Use Expenses for parts, tools, and supplies.</p>
-    </div>
+    
     <div class="md:col-span-2">
       <label class="block text-sm" for="notes">Notes</label>
       <textarea id="notes" name="notes" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900"></textarea>
@@ -82,7 +78,7 @@
       <th class="p-2">SKU</th>
       <th class="p-2">Make/Model</th>
       <th class="p-2">Serial</th>
-      <th class="p-2">Purchase</th>
+      <th class="p-2">Net</th>
       <th class="p-2">Status</th>
       <th class="p-2">Created</th>
       <th class="p-2">Actions</th>
@@ -94,7 +90,7 @@
         <td class="p-2"><a class="text-blue-600 hover:underline" href={`/devices/${d.id}`}>{d.sku}</a></td>
         <td class="p-2">{d.make} {d.model}</td>
         <td class="p-2">{d.serial || '-'}</td>
-        <td class="p-2">${(d.purchasePriceCents / 100).toFixed(2)}</td>
+        <td class="p-2"><span class={d.netCents >= 0 ? 'text-green-600' : 'text-red-600'}>${(d.netCents/100).toFixed(2)}</span></td>
         <td class="p-2">
           <form method="post" action="?/update" class="inline">
             <input type="hidden" name="id" value={d.id} />
@@ -168,10 +164,7 @@
           <label class="block text-sm" for={`condition-${editing.id}`}>Condition</label>
           <input id={`condition-${editing.id}`} name="condition" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={editing.condition || ''} />
         </div>
-        <div>
-          <label class="block text-sm" for={`purchasePrice-${editing.id}`}>Purchase Price (USD)</label>
-          <input id={`purchasePrice-${editing.id}`} name="purchasePrice" type="number" step="0.01" min="0" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={(editing.purchasePriceCents/100).toFixed(2)} />
-        </div>
+        
         <div class="md:col-span-3">
           <label class="block text-sm" for={`notes-${editing.id}`}>Notes</label>
           <textarea id={`notes-${editing.id}`} name="notes" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900">{editing.notes || ''}</textarea>

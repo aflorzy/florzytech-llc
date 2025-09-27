@@ -15,6 +15,8 @@
     <ul class="hidden sm:flex gap-4">
       <li><a href="/" class="hover:underline">Dashboard</a></li>
       <li><a href="/devices" class="hover:underline">Devices</a></li>
+      <li><a href="/customers" class="hover:underline">Customers</a></li>
+      <li><a href="/work-orders" class="hover:underline">Work Orders</a></li>
       <li><a href="/expenses" class="hover:underline">Expenses</a></li>
       <li><a href="/income" class="hover:underline">Income</a></li>
       <li><a href="/parts" class="hover:underline">Parts</a></li>
@@ -25,6 +27,8 @@
     <ul class="sm:hidden px-4 pb-3 space-y-2">
       <li><a href="/" class="block">Dashboard</a></li>
       <li><a href="/devices" class="block">Devices</a></li>
+      <li><a href="/customers" class="block">Customers</a></li>
+      <li><a href="/work-orders" class="block">Work Orders</a></li>
       <li><a href="/expenses" class="block">Expenses</a></li>
       <li><a href="/income" class="block">Income</a></li>
       <li><a href="/parts" class="block">Parts</a></li>

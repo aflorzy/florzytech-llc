@@ -1,12 +1,13 @@
 <script lang="ts">
   type Totals = {
+    incomeGrossCents: number;
     moneyInNetCents: number;
     moneyOutCents: number;
     spendingPowerCents: number;
     taxesCollectedCents: number;
     feesCents: number;
     expensesCents: number;
-    devicePurchasesCents: number;
+    partsInventoryValueCents: number;
   };
   type Last30 = {
     moneyInNetCents: number;
@@ -15,10 +16,11 @@
     taxesCollectedCents: number;
     feesCents: number;
     expensesCents: number;
-    devicePurchasesCents: number;
+    partsConsumedCents: number;
   };
   type DevicesCounts = { activeDevices: number; archivedDevices: number };
-  let { data } = $props<{ data: { totals: Totals; last30: Last30; devices: DevicesCounts } }>();
+  type WorkOrderCounts = { open: number };
+  let { data } = $props<{ data: { totals: Totals; last30: Last30; devices: DevicesCounts; workOrders: WorkOrderCounts } }>();
 
   const fmtUSD = (cents: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(
@@ -29,7 +31,7 @@
 
 <h1 class="text-3xl font-bold mb-6">Dashboard</h1>
 
-<section class="grid gap-4 md:grid-cols-3 mb-6">
+<section class="grid gap-4 md:grid-cols-4 mb-6">
   <div class="border rounded p-4 bg-white dark:bg-zinc-900">
     <h2 class="text-zinc-500 text-sm mb-1">Spending Power</h2>
     <div class={`text-3xl font-extrabold ${signClass(data.totals.spendingPowerCents)}`}>{fmtUSD(data.totals.spendingPowerCents)}</div>
@@ -43,7 +45,12 @@
   <div class="border rounded p-4 bg-white dark:bg-zinc-900">
     <h2 class="text-zinc-500 text-sm mb-1">Money Out</h2>
     <div class="text-3xl font-extrabold text-red-600">{fmtUSD(data.totals.moneyOutCents)}</div>
-    <p class="text-xs text-zinc-500 mt-2">Expenses + Device purchases</p>
+    <p class="text-xs text-zinc-500 mt-2">Expenses</p>
+  </div>
+  <div class="border rounded p-4 bg-white dark:bg-zinc-900">
+    <h2 class="text-zinc-500 text-sm mb-1">Gross Income</h2>
+    <div class="text-3xl font-extrabold">{fmtUSD(data.totals.incomeGrossCents)}</div>
+    <p class="text-xs text-zinc-500 mt-2">Before fees and shipping costs</p>
   </div>
 </section>
 
@@ -61,8 +68,8 @@
     <div class="text-2xl font-bold text-red-600">{fmtUSD(data.totals.expensesCents)}</div>
   </div>
   <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-    <h3 class="text-zinc-500 text-sm mb-1">Device Purchases</h3>
-    <div class="text-2xl font-bold text-red-600">{fmtUSD(data.totals.devicePurchasesCents)}</div>
+    <h3 class="text-zinc-500 text-sm mb-1">Parts Inventory Value</h3>
+    <div class="text-2xl font-bold">{fmtUSD(data.totals.partsInventoryValueCents)}</div>
   </div>
 </section>
 
@@ -96,15 +103,15 @@
       <div class="text-xl font-bold text-red-600">{fmtUSD(data.last30.expensesCents)}</div>
     </div>
     <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-      <h3 class="text-zinc-500 text-sm mb-1">Device Purchases (30d)</h3>
-      <div class="text-xl font-bold text-red-600">{fmtUSD(data.last30.devicePurchasesCents)}</div>
+      <h3 class="text-zinc-500 text-sm mb-1">Parts Consumed (30d)</h3>
+      <div class="text-xl font-bold">{fmtUSD(data.last30.partsConsumedCents)}</div>
     </div>
   </div>
 </section>
 
 <section>
-  <h2 class="text-xl font-semibold mb-3">Inventory</h2>
-  <div class="grid gap-4 sm:grid-cols-2">
+  <h2 class="text-xl font-semibold mb-3">Inventory & Work Orders</h2>
+  <div class="grid gap-4 sm:grid-cols-3">
     <div class="border rounded p-4 bg-white dark:bg-zinc-900 flex items-center justify-between">
       <div>
         <h3 class="text-zinc-500 text-sm">Active Devices</h3>
@@ -118,6 +125,13 @@
         <div class="text-3xl font-extrabold">{data.devices.archivedDevices}</div>
       </div>
       <span class="inline-flex items-center justify-center px-3 py-1 rounded bg-zinc-600 text-white text-sm">Archived</span>
+    </div>
+    <div class="border rounded p-4 bg-white dark:bg-zinc-900 flex items-center justify-between">
+      <div>
+        <h3 class="text-zinc-500 text-sm">Open Work Orders</h3>
+        <div class="text-3xl font-extrabold">{data.workOrders.open}</div>
+      </div>
+      <span class="inline-flex items-center justify-center px-3 py-1 rounded bg-blue-600 text-white text-sm">Open</span>
     </div>
   </div>
 </section>

@@ -23,3 +23,4 @@
   - Purchase orders; vendor management
 - [ ] Docker packaging + CI/CD
 - [ ] Ability to add/edit/delete payment methods (PayPal)
+- [ ] Add vendor Order number to expenses

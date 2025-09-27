@@ -8,7 +8,7 @@ export const load: PageServerLoad = async () => {
   const d30 = new Date(now);
   d30.setDate(d30.getDate() - 30);
 
-  const [incomeAgg, expenseAgg, deviceAgg, incomeAgg30, expenseAgg30, deviceAgg30, deviceCounts] = await Promise.all([
+  const [incomeAgg, expenseAgg, incomeAgg30, expenseAgg30, deviceCounts, partsList, partsConsumed30, openWorkOrders] = await Promise.all([
     prisma.income.aggregate({
       where: { archivedAt: null },
       _sum: {
@@ -24,10 +24,6 @@ export const load: PageServerLoad = async () => {
       where: { archivedAt: null },
       _sum: { amountCents: true }
     }),
-    prisma.device.aggregate({
-      where: { archivedAt: null },
-      _sum: { purchasePriceCents: true }
-    }),
     prisma.income.aggregate({
       where: { archivedAt: null, date: { gte: d30 } },
       _sum: {
@@ -42,15 +38,17 @@ export const load: PageServerLoad = async () => {
     prisma.expense.aggregate({
       where: { archivedAt: null, date: { gte: d30 } },
       _sum: { amountCents: true }
-    }),
-    prisma.device.aggregate({
-      where: { archivedAt: null, createdAt: { gte: d30 } },
-      _sum: { purchasePriceCents: true }
     }),
     Promise.all([
       prisma.device.count({ where: { archivedAt: null } }),
       prisma.device.count({ where: { archivedAt: { not: null } } })
-    ])
+    ]),
+    // Parts list to compute inventory value = quantity * averageCostCents
+    prisma.part.findMany({ where: { archivedAt: null }, select: { id: true, quantity: true, averageCostCents: true } }),
+    // Parts consumed in last 30 days (COGS from movements)
+    prisma.partInventoryMovement.aggregate({ where: { archivedAt: null, type: 'CONSUME', createdAt: { gte: d30 } }, _sum: { totalCostCents: true } }),
+    // Open work orders count (not cancelled or delivered)
+    prisma.workOrder.count({ where: { archivedAt: null, status: { notIn: ['DELIVERED', 'CANCELLED'] } } })
   ]);
 
   const [activeDevices, archivedDevices] = deviceCounts;
@@ -64,24 +62,27 @@ export const load: PageServerLoad = async () => {
   const expensesCents = zero(expenseAgg._sum.amountCents);
   const expensesCents30 = zero(expenseAgg30._sum.amountCents);
 
-  const devicePurchasesCents = zero(deviceAgg._sum.purchasePriceCents);
-  const devicePurchasesCents30 = zero(deviceAgg30._sum.purchasePriceCents);
-
-  const moneyOutCents = expensesCents + devicePurchasesCents;
-  const moneyOutCents30 = expensesCents30 + devicePurchasesCents30;
+  const moneyOutCents = expensesCents; // device purchase price no longer used; all costs via Expenses
+  const moneyOutCents30 = expensesCents30;
 
   const spendingPowerCents = moneyInNetCents - moneyOutCents;
   const spendingPowerCents30 = moneyInNetCents30 - moneyOutCents30;
 
+  // Additional metrics
+  const incomeGrossCents = zero(incomeSum.amountCents);
+  const partsInventoryValueCents = partsList.reduce((s, p) => s + (zero(p.quantity) * zero(p.averageCostCents)), 0);
+  const partsConsumedCents30 = zero(partsConsumed30._sum.totalCostCents);
+
   return {
     totals: {
+      incomeGrossCents,
       moneyInNetCents,
       moneyOutCents,
       spendingPowerCents,
       taxesCollectedCents: zero(incomeSum.taxCollectedCents),
       feesCents: zero(incomeSum.platformFeesCents) + zero(incomeSum.paymentFeesCents),
       expensesCents,
-      devicePurchasesCents
+      partsInventoryValueCents
     },
     last30: {
       moneyInNetCents: moneyInNetCents30,
@@ -90,8 +91,9 @@ export const load: PageServerLoad = async () => {
       taxesCollectedCents: zero(incomeSum30.taxCollectedCents),
       feesCents: zero(incomeSum30.platformFeesCents) + zero(incomeSum30.paymentFeesCents),
       expensesCents: expensesCents30,
-      devicePurchasesCents: devicePurchasesCents30
+      partsConsumedCents: partsConsumedCents30
     },
-    devices: { activeDevices, archivedDevices }
+    devices: { activeDevices, archivedDevices },
+    workOrders: { open: openWorkOrders }
   };
 };

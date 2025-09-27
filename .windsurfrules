@@ -1,3 +1,3 @@
-- Fix linting errors and warnings
+- Fix linting errors and warnings. Use `npm run check` to find them
 - Do not use `any` type - create interfaces or use inline types when necessary
 - Create DB migrations for all schema updates

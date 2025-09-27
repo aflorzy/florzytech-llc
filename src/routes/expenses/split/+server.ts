@@ -29,6 +29,7 @@ export const POST: RequestHandler = async ({ request }) => {
     vendorId?: string | null;
     paymentMethodId?: string | null;
     receiptNotes?: string | null;
+    vendorOrderNumber?: string | null;
     allocationMethod: AllocationMethod;
     totals: { totalTaxCents: number; totalShippingCents: number; totalOtherFeesCents: number };
     lines: Line[];
@@ -108,7 +109,8 @@ export const POST: RequestHandler = async ({ request }) => {
           vendorId,
           paymentMethodId,
           deviceId: line.deviceId || null,
-          notes
+          notes,
+          vendorOrderNumber: (body.vendorOrderNumber || undefined)
         }
       });
     }

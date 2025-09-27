@@ -4,6 +4,86 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Stage C: Multi-Item Sales
+enum IncomeLineType {
+  DEVICE
+  PART
+  LABOR
+  OTHER
+}
+
+model IncomeLine {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  archivedAt DateTime?
+
+  income   Income @relation(fields: [incomeId], references: [id])
+  incomeId String
+
+  type IncomeLineType
+
+  // Associations depending on type
+  device   Device? @relation(fields: [deviceId], references: [id])
+  deviceId String?
+
+  part     Part? @relation(fields: [partId], references: [id])
+  partId   String?
+
+  workOrder   WorkOrder? @relation(fields: [workOrderId], references: [id])
+  workOrderId String?
+
+  // Values
+  description String?
+  quantity    Int?    @default(0)
+  amountCents Int     @default(0)
+
+  // Allocations from head
+  allocatedPlatformFeesCents     Int @default(0)
+  allocatedPaymentFeesCents      Int @default(0)
+  allocatedShippingRevenueCents  Int @default(0)
+  allocatedShippingCostCents     Int @default(0)
+  allocatedTaxCents              Int @default(0)
+}
+
+model Income {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  archivedAt DateTime?
+
+  date        DateTime
+  type        IncomeType
+  amountCents Int
+
+  // Optional associations
+  device   Device? @relation(fields: [deviceId], references: [id])
+  deviceId String?
+
+  channel   SalesChannel? @relation(fields: [channelId], references: [id])
+  channelId String?
+
+  category   Category? @relation(fields: [categoryId], references: [id])
+  categoryId String?
+
+  // Fees/Shipping/Tax
+  platformFeesCents     Int @default(0)
+  paymentFeesCents      Int @default(0)
+  shippingRevenueCents  Int @default(0)
+  shippingCostCents     Int @default(0)
+  taxCollectedCents     Int @default(0)
+  notes                 String?
+
+  workOrder   WorkOrder? @relation(fields: [workOrderId], references: [id])
+  workOrderId String?
+
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  customerId String?
+
+  // Stage C: Lines
+  lines IncomeLine[]
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -35,6 +115,32 @@ enum AllocationMethod {
   MANUAL
 }
 
+enum WorkOrderStatus {
+  OPEN
+  WAITING_PARTS
+  IN_PROGRESS
+  READY
+  DELIVERED
+  CANCELLED
+}
+
+enum WorkOrderTargetAction {
+  RETURN_TO_CUSTOMER
+  SELL
+}
+
+enum WorkOrderDeviceRole {
+  PRIMARY
+  DONOR
+  ACCESSORY
+}
+
+enum WorkOrderItemType {
+  PART
+  LABOR
+  NOTE
+}
+
 model Device {
   id        String   @id @default(uuid())
   createdAt DateTime @default(now())
@@ -54,6 +160,9 @@ model Device {
 
   expenses Expense[]
   incomes  Income[]
+  workOrderDevices WorkOrderDevice[]
+  workOrderItems   WorkOrderItem[]
+  incomeLines      IncomeLine[]
 }
 
 model Vendor {
@@ -110,46 +219,22 @@ model Expense {
   splitGroupId    String?
   allocationMethod AllocationMethod?
   notes       String?
+  vendorOrderNumber String?
 
-  category   Category @relation(fields: [categoryId], references: [id])
+  // Relations
   categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
 
-  vendor   Vendor? @relation(fields: [vendorId], references: [id])
   vendorId String?
+  vendor   Vendor? @relation(fields: [vendorId], references: [id])
 
-  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
   paymentMethodId String?
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
 
-  device   Device? @relation(fields: [deviceId], references: [id])
   deviceId String?
-}
-
-model Income {
-  id        String   @id @default(uuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  archivedAt DateTime?
-
-  date        DateTime
-  type        IncomeType
-  amountCents Int
-  notes       String?
-
-  channel   SalesChannel? @relation(fields: [channelId], references: [id])
-  channelId String?
-
   device   Device? @relation(fields: [deviceId], references: [id])
-  deviceId String?
 
-  // Optional categorization for income
-  category   Category? @relation(fields: [categoryId], references: [id])
-  categoryId String?
-
-  platformFeesCents    Int @default(0)
-  paymentFeesCents     Int @default(0)
-  shippingRevenueCents Int @default(0)
-  shippingCostCents    Int @default(0)
-  taxCollectedCents    Int @default(0)
+  partMovements PartInventoryMovement[]
 }
 
 model Part {
@@ -162,7 +247,128 @@ model Part {
   sku           String? @unique
   partNumber    String?
   quantity      Int     @default(0)
-  unitCostCents Int? // optional tracking of average unit cost
+  unitCostCents Int? // legacy; not used for average costing
+  averageCostCents Int @default(0)
   notes         String?
   url           String?
+  workOrderItems WorkOrderItem[]
+  movements     PartInventoryMovement[]
+  incomeLines   IncomeLine[]
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  archivedAt DateTime?
+
+  name       String
+  email      String?
+  phone      String?
+  addressLine1 String?
+  addressLine2 String?
+  city       String?
+  state      String?
+  postalCode String?
+  notes      String?
+
+  incomes Income[]
+  workOrders WorkOrder[]
+}
+
+model WorkOrder {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  archivedAt DateTime?
+
+  code       String   @unique
+  status     WorkOrderStatus @default(OPEN)
+  targetAction WorkOrderTargetAction @default(RETURN_TO_CUSTOMER)
+  notes      String?
+
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  customerId String?
+
+  devices WorkOrderDevice[]
+  items   WorkOrderItem[]
+  incomes Income[]
+  incomeLines IncomeLine[]
+
+  partMovements PartInventoryMovement[]
+}
+
+model WorkOrderDevice {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  archivedAt DateTime?
+
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id])
+  workOrderId String
+
+  device   Device @relation(fields: [deviceId], references: [id])
+  deviceId String
+
+  role WorkOrderDeviceRole @default(PRIMARY)
+}
+
+model WorkOrderItem {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  archivedAt DateTime?
+
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id])
+  workOrderId String
+
+  type WorkOrderItemType
+
+  // PART consumption or general note/labor lines
+  part    Part?   @relation(fields: [partId], references: [id])
+  partId  String?
+  device  Device? @relation(fields: [deviceId], references: [id])
+  deviceId String?
+
+  quantity Int? @default(0) // for PART
+  unitCostCentsSnapshot Int? @default(0) // captured at consumption
+
+  // For LABOR or NOTE
+  description String?
+  amountCents Int? @default(0)
+}
+
+
+
+enum PartInventoryMovementType {
+  RECEIPT
+  CONSUME
+  ADJUSTMENT
+}
+
+model PartInventoryMovement {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  archivedAt DateTime?
+
+  type PartInventoryMovementType
+
+  part   Part   @relation(fields: [partId], references: [id])
+  partId String
+
+  // Positive for RECEIPT/ADJUSTMENT up; negative represented by type+quantity semantics; we keep quantity positive and infer sign by type.
+  quantity Int
+
+  // Cost for this movement (per unit and total)
+  unitCostCents  Int
+  totalCostCents Int
+
+  // Optional associations for traceability
+  workOrder   WorkOrder? @relation(fields: [workOrderId], references: [id])
+  workOrderId String?
+
+  expense   Expense? @relation(fields: [expenseId], references: [id])
+  expenseId String?
+
+  notes String?
 }

@@ -3,17 +3,56 @@ import { prisma } from '$lib/server/prisma';
 import { buildSku } from '$lib/sku';
 import { DeviceStatus } from '@prisma/client';
 
-function toCents(v: FormDataEntryValue | null) {
-  const n = typeof v === 'string' ? parseFloat(v) : 0;
-  return Math.round((n || 0) * 100);
-}
-
 export const load: PageServerLoad = async () => {
   const devices = await prisma.device.findMany({
     where: { archivedAt: null },
     orderBy: { createdAt: 'desc' }
   });
-  return { devices };
+  const ids = devices.map((d) => d.id);
+  if (ids.length === 0) return { devices: [] };
+
+  const [expenseGroups, incomeGroups] = await Promise.all([
+    prisma.expense.groupBy({
+      by: ['deviceId'],
+      where: { deviceId: { in: ids }, archivedAt: null },
+      _sum: { amountCents: true }
+    }),
+    prisma.income.groupBy({
+      by: ['deviceId'],
+      where: { deviceId: { in: ids }, archivedAt: null },
+      _sum: {
+        amountCents: true,
+        platformFeesCents: true,
+        paymentFeesCents: true,
+        shippingRevenueCents: true,
+        shippingCostCents: true
+      }
+    })
+  ]);
+
+  const expenseMap = new Map<string, number>();
+  for (const g of expenseGroups) {
+    if (g.deviceId) expenseMap.set(g.deviceId, g._sum.amountCents || 0);
+  }
+  const incomeMap = new Map<string, { income: number; fees: number; shipNet: number }>();
+  for (const g of incomeGroups) {
+    if (!g.deviceId) continue;
+    const income = g._sum.amountCents || 0;
+    const fees = (g._sum.platformFeesCents || 0) + (g._sum.paymentFeesCents || 0);
+    const shipNet = (g._sum.shippingRevenueCents || 0) - (g._sum.shippingCostCents || 0);
+    incomeMap.set(g.deviceId, { income, fees, shipNet });
+  }
+
+  const withNet = devices.map((d) => {
+    const exp = expenseMap.get(d.id) || 0;
+    const inc = incomeMap.get(d.id)?.income || 0;
+    const fees = incomeMap.get(d.id)?.fees || 0;
+    const shipNet = incomeMap.get(d.id)?.shipNet || 0;
+    const netCents = inc - exp - fees + shipNet;
+    return { ...d, netCents };
+  });
+
+  return { devices: withNet };
 };
 
 export const actions: Actions = {
@@ -25,7 +64,6 @@ export const actions: Actions = {
     const source = String(form.get('source') || '') || null;
     const condition = String(form.get('condition') || '') || null;
     const notes = String(form.get('notes') || '') || null;
-    const purchasePriceCents = toCents(form.get('purchasePrice'));
 
     const now = new Date();
     const ymStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -44,7 +82,6 @@ export const actions: Actions = {
         source,
         condition,
         notes,
-        purchasePriceCents,
         sku
       }
     });
@@ -62,7 +99,6 @@ export const actions: Actions = {
     const source = (String(form.get('source') || '')).trim() || null;
     const condition = (String(form.get('condition') || '')).trim() || null;
     const notes = (String(form.get('notes') || '')).trim() || null;
-    const purchasePriceCents = toCents(form.get('purchasePrice'));
     const statusRaw = (String(form.get('status') || '')).trim();
     let status: DeviceStatus | undefined = undefined;
     if (statusRaw) {
@@ -79,7 +115,6 @@ export const actions: Actions = {
       source?: string | null;
       condition?: string | null;
       notes?: string | null;
-      purchasePriceCents?: number;
       status?: DeviceStatus;
     } = {};
 
@@ -95,7 +130,6 @@ export const actions: Actions = {
     if (form.has('source')) data.source = source;
     if (form.has('condition')) data.condition = condition;
     if (form.has('notes')) data.notes = notes;
-    if (form.has('purchasePrice')) data.purchasePriceCents = purchasePriceCents;
     if (status) data.status = status;
 
     if (Object.keys(data).length === 0) {

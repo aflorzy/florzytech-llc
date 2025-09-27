@@ -4,6 +4,7 @@
   type Vendor = { id: string; name: string };
   type PaymentMethod = { id: string; name: string };
   type DeviceRef = { id: string; sku: string; make: string; model: string };
+  type PartRef = { id: string; name: string };
   type ExpenseItem = {
     id: string;
     date: string | Date;
@@ -13,6 +14,8 @@
     vendor?: Vendor | null;
     paymentMethod?: PaymentMethod | null;
     device?: DeviceRef | null;
+    splitGroupId?: string | null;
+    vendorOrderNumber?: string | null;
   };
   let { data } = $props<{
     data: {
@@ -21,6 +24,7 @@
       vendors: Vendor[];
       paymentMethods: PaymentMethod[];
       devices: DeviceRef[];
+      parts: PartRef[];
     };
   }>();
 
@@ -36,26 +40,50 @@
 
   // Split Receipt modal state
   let splitOpen = $state(false);
-  type SplitLine = { categoryId: string; deviceId?: string | null; notes?: string | null; subtotalCents: number; taxCents?: number; shippingCents?: number; otherFeesCents?: number };
-  let splitDate = $state<string>('');
+  type SplitLine = {
+    categoryId: string;
+    deviceId?: string | null;
+    notes?: string | null;
+    subtotalCents: number;
+    taxCents?: number;
+    shippingCents?: number;
+    otherFeesCents?: number;
+    // Stage B
+    partId?: string | null;
+    newPartName?: string | null;
+    quantity?: number;
+  };
+  let splitDate = $state<string>(todayLocal());
   let splitVendorId = $state<string | null>(null);
   let splitPaymentMethodId = $state<string | null>(null);
   let splitReceiptNotes = $state<string>('');
+  let splitVendorOrderNumber = $state<string>('');
   let splitMethod = $state<AllocationMethod>('PROPORTIONAL_SUBTOTAL');
   let splitTotals = $state({ totalTaxCents: 0, totalShippingCents: 0, totalOtherFeesCents: 0 });
   let splitLines = $state<SplitLine[]>([]);
+
+  function isPartsCategory(categoryId: string): boolean {
+    const cat = data.categories.find((c) => c.id === categoryId);
+    return !!cat && /part/i.test(cat.name);
+  }
 
   function usdToCents(v: string): number { const n = parseFloat(v); return Math.round((n || 0) * 100); }
   function centsToUsd(n: number): string { return ((n || 0) / 100).toFixed(2); }
   function addSplitLine() {
     const firstCat = data.categories[0]?.id || '';
-    splitLines = [...splitLines, { categoryId: firstCat, deviceId: null, notes: '', subtotalCents: 0 }];
+    splitLines = [...splitLines, { categoryId: firstCat, deviceId: null, notes: '', subtotalCents: 0, partId: null, newPartName: '', quantity: 0 }];
   }
   function removeSplitLine(idx: number) {
     splitLines = splitLines.filter((_, i) => i !== idx);
   }
   const allocPreview = $derived(previewAllocation(splitMethod, splitLines.map(l => ({ subtotalCents: l.subtotalCents })), splitTotals));
-  if (!splitDate) splitDate = todayLocal();
+  function splitGrandTotalCents(): number {
+    if (splitMethod === 'MANUAL') {
+      return splitLines.reduce((s, l) => s + l.subtotalCents + (l.taxCents||0) + (l.shippingCents||0) + (l.otherFeesCents||0), 0);
+    }
+    return allocPreview.reduce((s, a) => s + (a?.loadedTotalCents || 0), 0);
+  }
+  // splitDate is initialized above
 
   async function submitSplit() {
     const payload = {
@@ -63,6 +91,7 @@
       vendorId: splitVendorId || null,
       paymentMethodId: splitPaymentMethodId || null,
       receiptNotes: splitReceiptNotes || null,
+      vendorOrderNumber: splitVendorOrderNumber || null,
       allocationMethod: splitMethod,
       totals: splitTotals,
       lines: splitLines
@@ -108,7 +137,7 @@
           <option value={c.id}>{c.name}</option>
         {/each}
       </select>
-      <p class="text-xs text-zinc-500 mt-1">Choose the expense category (e.g., Parts, Tools/Consumables, Shipping Supplies). Device purchases should typically be entered on the Devices page via Purchase Price.</p>
+      <p class="text-xs text-zinc-500 mt-1">Choose the expense category (e.g., Parts, Tools/Consumables, Shipping Supplies). To attribute a device's cost, select the Device below when saving this expense.</p>
     </div>
     <div>
       <label class="block text-sm" for="vendorId">Vendor</label>
@@ -129,6 +158,11 @@
         {/each}
       </select>
       <p class="text-xs text-zinc-500 mt-1">Optional. How you paid for the expense.</p>
+    </div>
+    <div>
+      <label class="block text-sm" for="vendorOrderNumber">Vendor Order #</label>
+      <input id="vendorOrderNumber" name="vendorOrderNumber" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" />
+      <p class="text-xs text-zinc-500 mt-1">Optional. Useful for matching receipts and purchase orders.</p>
     </div>
     <div>
       <label class="block text-sm" for="deviceId">Device</label>
@@ -152,13 +186,14 @@
 
 {#if splitOpen}
   <div class="fixed inset-0 bg-black/60 z-40" role="button" tabindex="0" aria-label="Close split receipt dialog" onclick={() => (splitOpen = false)} onkeydown={(e) => { const k = (e as KeyboardEvent).key; if (k === 'Enter' || k === ' ' || k === 'Escape') { splitOpen = false; } }}></div>
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-    <div class="w-full max-w-5xl bg-white dark:bg-zinc-900 border rounded shadow-lg" onclick={(e) => e.stopPropagation()}>
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div class="w-full max-w-5xl bg-white dark:bg-zinc-900 border rounded shadow-lg" role="document" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <div class="p-4 border-b flex items-center justify-between">
         <h2 class="text-lg font-semibold">Split Receipt</h2>
         <button class="px-2 py-1 rounded bg-zinc-200 dark:bg-zinc-700" onclick={() => (splitOpen = false)}>Close</button>
       </div>
-      <div class="p-4 grid gap-3 md:grid-cols-4">
+      <div class="p-4 grid gap-3 md:grid-cols-5">
         <div>
           <label class="block text-sm" for="split-date">Date</label>
           <input id="split-date" type="date" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={splitDate} />
@@ -189,6 +224,10 @@
             <option value="MANUAL">Manual</option>
           </select>
         </div>
+        <div>
+          <label class="block text-sm" for="split-vendor-order">Vendor Order #</label>
+          <input id="split-vendor-order" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={splitVendorOrderNumber} />
+        </div>
         <div class="md:col-span-4 grid gap-3 md:grid-cols-4">
           <div>
             <label class="block text-sm" for="split-tax">Invoice Tax (USD)</label>
@@ -206,6 +245,12 @@
             <label class="block text-sm" for="split-notes">Receipt Notes</label>
             <input id="split-notes" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={splitReceiptNotes} />
           </div>
+          <div class="md:col-span-4 flex items-end">
+            <div class="w-full px-3 py-2 border rounded bg-zinc-50 dark:bg-zinc-800">
+              <div class="text-xs text-zinc-500">Grand Total</div>
+              <div class="text-lg font-semibold">${centsToUsd(splitGrandTotalCents())}</div>
+            </div>
+          </div>
         </div>
       </div>
       <div class="p-4">
@@ -219,6 +264,9 @@
               <tr class="bg-zinc-50 dark:bg-zinc-800 text-left">
                 <th class="p-2">Category</th>
                 <th class="p-2">Device</th>
+                <th class="p-2">Part</th>
+                <th class="p-2">New Part Name</th>
+                <th class="p-2">Qty</th>
                 <th class="p-2">Notes</th>
                 <th class="p-2">Subtotal (USD)</th>
                 {#if splitMethod === 'MANUAL'}
@@ -234,7 +282,17 @@
               {#each splitLines as ln, i}
                 <tr class="divide-x">
                   <td class="p-2">
-                    <select class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" bind:value={ln.categoryId}>
+                    <select
+                      class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900"
+                      bind:value={ln.categoryId}
+                      onchange={(e) => {
+                        const id = (e.target as HTMLSelectElement).value;
+                        ln.categoryId = id;
+                        if (!isPartsCategory(id)) { ln.partId = null; ln.newPartName = ''; ln.quantity = 0; }
+                        else { if (!ln.quantity || ln.quantity <= 0) ln.quantity = 1; }
+                        splitLines = [...splitLines];
+                      }}
+                    >
                       {#each data.categories as c}
                         <option value={c.id}>{c.name}</option>
                       {/each}
@@ -247,6 +305,42 @@
                         <option value={d.id}>{d.sku} — {d.make} {d.model}</option>
                       {/each}
                     </select>
+                  </td>
+                  <td class="p-2">
+                    <select
+                      class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed dark:disabled:bg-zinc-800"
+                      bind:value={ln.partId}
+                      disabled={!isPartsCategory(ln.categoryId)}
+                      onchange={(e) => {
+                        const v = (e.target as HTMLSelectElement).value || null;
+                        ln.partId = v as any;
+                        if (ln.partId) ln.newPartName = '';
+                        splitLines = [...splitLines];
+                      }}
+                    >
+                      <option value={null}>-</option>
+                      {#each data.parts as p}
+                        <option value={p.id}>{p.name}</option>
+                      {/each}
+                    </select>
+                  </td>
+                  <td class="p-2">
+                    <input
+                      class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed dark:disabled:bg-zinc-800"
+                      placeholder="New Part Name (optional)"
+                      bind:value={ln.newPartName}
+                      disabled={!isPartsCategory(ln.categoryId) || !!ln.partId}
+                    />
+                  </td>
+                  <td class="p-2">
+                    <input
+                      class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed dark:disabled:bg-zinc-800"
+                      type="number"
+                      min={isPartsCategory(ln.categoryId) ? 1 : 0}
+                      step="1"
+                      bind:value={ln.quantity}
+                      disabled={!isPartsCategory(ln.categoryId)}
+                    />
                   </td>
                   <td class="p-2"><input class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" bind:value={ln.notes} /></td>
                   <td class="p-2">
@@ -315,6 +409,13 @@
         </td>
         <td class="p-2">
           <div class="flex items-center gap-2">
+            {#if e.splitGroupId}
+              <a class="h-8 w-8 inline-flex items-center justify-center rounded bg-purple-700 text-white hover:opacity-90" title="Edit Receipt" aria-label="Edit Receipt" href={`/expenses/receipt/${e.splitGroupId}`}>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
+                  <path d="M6 2a2 2 0 0 0-2 2v16l3-2 3 2 3-2 3 2 3-2V4a2 2 0 0 0-2-2H6Zm2 5h8v2H8V7Zm0 4h8v2H8v-2Zm0 4h6v2H8v-2Z"/>
+                </svg>
+              </a>
+            {/if}
             <button class="h-8 w-8 inline-flex items-center justify-center rounded bg-yellow-600 text-white hover:opacity-90" title="Edit" aria-label="Edit" onclick={() => (editingId = editingId === e.id ? null : e.id)}>
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
                 <path d="M16.862 3.487a1.5 1.5 0 0 1 2.121 2.121l-1.06 1.06-2.122-2.12 1.061-1.06ZM14.68 5.669 4.5 15.85V19.5h3.65L18.33 9.319l-3.65-3.65Z"/>
@@ -369,6 +470,10 @@
                     <option value={m.id} selected={e.paymentMethod?.id === m.id}>{m.name}</option>
                   {/each}
                 </select>
+              </div>
+              <div>
+                <label class="block text-sm" for={`vendorOrderNumber-${e.id}`}>Vendor Order #</label>
+                <input id={`vendorOrderNumber-${e.id}`} name="vendorOrderNumber" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={e.vendorOrderNumber || ''} />
               </div>
               <div>
                 <label class="block text-sm" for={`deviceId-${e.id}`}>Device</label>

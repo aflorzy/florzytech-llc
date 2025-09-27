@@ -1,6 +1,7 @@
 import type { Actions, PageServerLoad } from './$types';
 import { prisma } from '$lib/server/prisma';
 import { allocateProportional, allocateEven, type AllocationMethod } from '$lib/allocation';
+import { PartInventoryMovementType } from '@prisma/client';
 import { randomUUID } from 'crypto';
 
 function toCents(v: FormDataEntryValue | null) {
@@ -16,7 +17,7 @@ function parseLocalDate(v: FormDataEntryValue | null): Date {
 }
 
 export const load: PageServerLoad = async () => {
-  const [expenses, categories, vendors, paymentMethods, devices] = await Promise.all([
+  const [expenses, categories, vendors, paymentMethods, devices, parts] = await Promise.all([
     prisma.expense.findMany({
       where: { archivedAt: null },
       orderBy: { date: 'desc' },
@@ -26,9 +27,10 @@ export const load: PageServerLoad = async () => {
     prisma.category.findMany({ where: { kind: 'expense', active: true }, orderBy: { name: 'asc' } }),
     prisma.vendor.findMany({ where: { active: true, archivedAt: null }, orderBy: { name: 'asc' } }),
     prisma.paymentMethod.findMany({ where: { active: true }, orderBy: { name: 'asc' } }),
-    prisma.device.findMany({ where: { archivedAt: null }, orderBy: { createdAt: 'desc' }, take: 100 })
+    prisma.device.findMany({ where: { archivedAt: null }, orderBy: { createdAt: 'desc' }, take: 100 }),
+    prisma.part.findMany({ where: { archivedAt: null }, orderBy: { name: 'asc' }, take: 500 })
   ]);
-  return { expenses, categories, vendors, paymentMethods, devices };
+  return { expenses, categories, vendors, paymentMethods, devices, parts };
 };
 
 export const actions: Actions = {
@@ -41,6 +43,7 @@ export const actions: Actions = {
     const paymentMethodId = String(form.get('paymentMethodId') || '') || null;
     const deviceId = String(form.get('deviceId') || '') || null;
     const notes = String(form.get('notes') || '') || null;
+    const vendorOrderNumber = (String(form.get('vendorOrderNumber') || '')).trim() || null;
 
     await prisma.expense.create({
       data: {
@@ -54,7 +57,8 @@ export const actions: Actions = {
         vendorId,
         paymentMethodId,
         deviceId,
-        notes
+        notes,
+        vendorOrderNumber
       }
     });
 
@@ -73,12 +77,17 @@ export const actions: Actions = {
       taxCents?: number;
       shippingCents?: number;
       otherFeesCents?: number;
+      // Stage B additions
+      partId?: string | null;
+      newPartName?: string | null;
+      quantity?: number; // required if part is selected or newPartName set
     };
     type Payload = {
       date: string;
       vendorId?: string | null;
       paymentMethodId?: string | null;
       receiptNotes?: string | null;
+      vendorOrderNumber?: string | null;
       allocationMethod: AllocationMethod;
       totals: { totalTaxCents: number; totalShippingCents: number; totalOtherFeesCents: number };
       lines: Line[];
@@ -88,6 +97,7 @@ export const actions: Actions = {
     const vendorId = body.vendorId || null;
     const paymentMethodId = body.paymentMethodId || null;
     const receiptNotes = (body.receiptNotes || '').trim() || null;
+    const vendorOrderNumber = (body.vendorOrderNumber || '').trim() || null;
     const lines = Array.isArray(body.lines) ? body.lines : [];
     if (lines.length === 0) return { success: false, error: 'No lines provided' };
     for (const l of lines) {
@@ -137,7 +147,8 @@ export const actions: Actions = {
         const a = allocated[i];
         const amountCents = a.subtotalCents + a.taxCents + a.shippingCents + a.otherFeesCents;
         const notes = (line.notes || receiptNotes) || null;
-        await tx.expense.create({
+
+        const created = await tx.expense.create({
           data: {
             date,
             amountCents,
@@ -151,9 +162,48 @@ export const actions: Actions = {
             vendorId,
             paymentMethodId,
             deviceId: line.deviceId || null,
-            notes
+            notes,
+            vendorOrderNumber
           }
         });
+
+        // Inventory receipt handling (Stage B)
+        const wantsPart = !!(line.partId || (line.newPartName && line.newPartName.trim())) && Number.isFinite(line.quantity) && (Math.floor(line.quantity || 0) > 0);
+        if (wantsPart) {
+          const qty = Math.floor(line.quantity || 0);
+          let targetPartId = line.partId || null;
+          if (!targetPartId) {
+            // create new part inline
+            const name = String(line.newPartName || '').trim();
+            if (!name) {
+              throw new Error('Invalid new part name');
+            }
+            const newPart = await tx.part.create({ data: { name, quantity: 0, averageCostCents: 0 } });
+            targetPartId = newPart.id;
+          }
+
+          // Fetch current part state
+          const part = await tx.part.findUnique({ where: { id: targetPartId! }, select: { id: true, quantity: true, averageCostCents: true } });
+          if (!part) throw new Error('Part not found');
+
+          const unitCostCents = Math.max(0, Math.round(amountCents / qty));
+          const totalCostCents = amountCents;
+          const newQty = (part.quantity || 0) + qty;
+          const newAvg = newQty > 0 ? Math.round(((part.averageCostCents || 0) * (part.quantity || 0) + totalCostCents) / newQty) : part.averageCostCents || 0;
+
+          await tx.part.update({ where: { id: part.id }, data: { quantity: newQty, averageCostCents: newAvg } });
+          await tx.partInventoryMovement.create({
+            data: {
+              type: PartInventoryMovementType.RECEIPT,
+              partId: part.id,
+              quantity: qty,
+              unitCostCents,
+              totalCostCents,
+              expenseId: created.id,
+              notes
+            }
+          });
+        }
       }
     });
 
@@ -171,10 +221,11 @@ export const actions: Actions = {
     const paymentMethodId = String(form.get('paymentMethodId') || '') || null;
     const deviceId = String(form.get('deviceId') || '') || null;
     const notes = String(form.get('notes') || '') || null;
+    const vendorOrderNumber = (String(form.get('vendorOrderNumber') || '').trim() || null);
 
     await prisma.expense.update({
       where: { id },
-      data: { amountCents, date, categoryId, vendorId, paymentMethodId, deviceId, notes }
+      data: { amountCents, date, categoryId, vendorId, paymentMethodId, deviceId, notes, vendorOrderNumber }
     });
     return { success: true, id };
   },

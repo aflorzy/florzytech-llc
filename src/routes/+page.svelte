@@ -27,6 +27,19 @@
       (cents || 0) / 100
     );
   const signClass = (cents: number) => (cents >= 0 ? 'text-green-600' : 'text-red-600');
+
+  // Quick date helpers for drill-down links
+  const fmtDate = (d: Date) => {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+  const today = new Date();
+  const toStr = fmtDate(today);
+  const from30 = new Date();
+  from30.setDate(today.getDate() - 29); // include today = 30 days window
+  const from30Str = fmtDate(from30);
 </script>
 
 <h1 class="text-3xl font-bold mb-6">Dashboard</h1>
@@ -41,16 +54,31 @@
     <h2 class="text-zinc-500 text-sm mb-1">Money In (Net)</h2>
     <div class="text-3xl font-extrabold text-green-600">{fmtUSD(data.totals.moneyInNetCents)}</div>
     <p class="text-xs text-zinc-500 mt-2">Sales/Service - fees - shipping costs + shipping revenue</p>
+    <div class="mt-2 text-xs">
+      <a class="text-blue-600 hover:underline" href="/income">View all transactions</a>
+      <span class="mx-1 text-zinc-400">·</span>
+      <a class="text-blue-600 hover:underline" href={`/income?from=${from30Str}&to=${toStr}`}>View last 30d</a>
+    </div>
   </div>
   <div class="border rounded p-4 bg-white dark:bg-zinc-900">
     <h2 class="text-zinc-500 text-sm mb-1">Money Out</h2>
     <div class="text-3xl font-extrabold text-red-600">{fmtUSD(data.totals.moneyOutCents)}</div>
     <p class="text-xs text-zinc-500 mt-2">Expenses</p>
+    <div class="mt-2 text-xs">
+      <a class="text-blue-600 hover:underline" href="/expenses">View all transactions</a>
+      <span class="mx-1 text-zinc-400">·</span>
+      <a class="text-blue-600 hover:underline" href={`/expenses?from=${from30Str}&to=${toStr}`}>View last 30d</a>
+    </div>
   </div>
   <div class="border rounded p-4 bg-white dark:bg-zinc-900">
     <h2 class="text-zinc-500 text-sm mb-1">Gross Income</h2>
     <div class="text-3xl font-extrabold">{fmtUSD(data.totals.incomeGrossCents)}</div>
     <p class="text-xs text-zinc-500 mt-2">Before fees and shipping costs</p>
+    <div class="mt-2 text-xs">
+      <a class="text-blue-600 hover:underline" href="/income">View all transactions</a>
+      <span class="mx-1 text-zinc-400">·</span>
+      <a class="text-blue-600 hover:underline" href={`/income?from=${from30Str}&to=${toStr}`}>View last 30d</a>
+    </div>
   </div>
 </section>
 

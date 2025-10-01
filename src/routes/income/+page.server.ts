@@ -14,12 +14,18 @@ function parseLocalDate(v: FormDataEntryValue | null): Date {
   return new Date(y, (m || 1) - 1, d || 1);
 }
 
-export const load: PageServerLoad = async () => {
+export const load: PageServerLoad = async ({ url }) => {
+  const from = url.searchParams.get('from');
+  const to = url.searchParams.get('to');
+  const dateWhere: { gte?: Date; lte?: Date } = {};
+  if (from) dateWhere.gte = new Date(from);
+  if (to) { const t = new Date(to); t.setHours(23,59,59,999); dateWhere.lte = t; }
+  const where = { archivedAt: null, ...(from || to ? { date: dateWhere } : {}) } as const;
+
   const [income, channels, devices, categories, customers, workOrders, parts] = await Promise.all([
     prisma.income.findMany({
-      where: { archivedAt: null },
+      where,
       orderBy: { date: 'desc' },
-      take: 100,
       include: { channel: true, device: true, category: true, customer: true, workOrder: true }
     }),
     prisma.salesChannel.findMany({ where: { active: true }, orderBy: { name: 'asc' } }),
@@ -29,7 +35,7 @@ export const load: PageServerLoad = async () => {
     prisma.workOrder.findMany({ where: { archivedAt: null }, orderBy: { createdAt: 'desc' }, take: 100 }),
     prisma.part.findMany({ where: { archivedAt: null }, orderBy: { name: 'asc' }, take: 500 })
   ]);
-  return { income, channels, devices, categories, customers, workOrders, parts };
+  return { income, channels, devices, categories, customers, workOrders, parts, filters: { from, to } };
 };
 
 export const actions: Actions = {

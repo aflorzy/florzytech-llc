@@ -17,6 +17,7 @@
     splitGroupId?: string | null;
     vendorOrderNumber?: string | null;
   };
+  type Filters = { from: string | null; to: string | null };
   let { data } = $props<{
     data: {
       expenses: ExpenseItem[];
@@ -25,6 +26,7 @@
       paymentMethods: PaymentMethod[];
       devices: DeviceRef[];
       parts: PartRef[];
+      filters: Filters;
     };
   }>();
 
@@ -63,7 +65,7 @@
   let splitLines = $state<SplitLine[]>([]);
 
   function isPartsCategory(categoryId: string): boolean {
-    const cat = data.categories.find((c) => c.id === categoryId);
+    const cat = data.categories.find((c: Category) => c.id === categoryId);
     return !!cat && /part/i.test(cat.name);
   }
 
@@ -108,6 +110,25 @@
 </script>
 
 <h1 class="text-2xl font-semibold mb-4">Expenses</h1>
+
+<form method="get" class="flex flex-wrap items-end gap-2 mb-4">
+  <div>
+    <label class="block text-sm" for="from">From</label>
+    <input id="from" name="from" type="date" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={data.filters.from || ''} />
+  </div>
+  <div>
+    <label class="block text-sm" for="to">To</label>
+    <input id="to" name="to" type="date" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={data.filters.to || ''} />
+  </div>
+  <div class="flex items-end gap-2">
+    <button class="px-3 py-2 rounded bg-zinc-200 dark:bg-zinc-700" type="submit">Apply</button>
+    {#if data.filters.from || data.filters.to}
+      <a class="px-3 py-2 rounded bg-zinc-100 dark:bg-zinc-800" href="/expenses">Clear</a>
+    {/if}
+  </div>
+  <div class="ml-auto text-xs text-zinc-500">Filter to view transactions behind dashboard metrics</div>
+  <div class="w-full h-px bg-zinc-200 dark:bg-zinc-800"></div>
+</form>
 
 <div class="flex items-center gap-2 mb-4">
   <button class="px-3 py-2 rounded bg-blue-600 text-white" onclick={() => (open = !open)}>

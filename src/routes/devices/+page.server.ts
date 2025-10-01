@@ -9,7 +9,10 @@ export const load: PageServerLoad = async () => {
     orderBy: { createdAt: 'desc' }
   });
   const ids = devices.map((d) => d.id);
-  if (ids.length === 0) return { devices: [] };
+  if (ids.length === 0) {
+    const vendors = await prisma.vendor.findMany({ where: { archivedAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true } });
+    return { devices: [], vendors };
+  }
 
   const [expenseGroups, incomeGroups] = await Promise.all([
     prisma.expense.groupBy({
@@ -52,7 +55,8 @@ export const load: PageServerLoad = async () => {
     return { ...d, netCents };
   });
 
-  return { devices: withNet };
+  const vendors = await prisma.vendor.findMany({ where: { archivedAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true } });
+  return { devices: withNet, vendors };
 };
 
 export const actions: Actions = {
@@ -61,7 +65,7 @@ export const actions: Actions = {
     const make = String(form.get('make') || '');
     const model = String(form.get('model') || '');
     const serial = String(form.get('serial') || '') || null;
-    const source = String(form.get('source') || '') || null;
+    const vendorId = String(form.get('vendorId') || '') || null;
     const condition = String(form.get('condition') || '') || null;
     const notes = String(form.get('notes') || '') || null;
 
@@ -74,12 +78,14 @@ export const actions: Actions = {
     });
     const sku = buildSku(process.env.SKU_PREFIX || 'FZ', now, make, countThisMonth + 1);
 
+    const vendorName = vendorId ? (await prisma.vendor.findUnique({ where: { id: vendorId }, select: { name: true } }))?.name || null : null;
+
     const device = await prisma.device.create({
       data: {
         make,
         model,
         serial,
-        source,
+        source: vendorName,
         condition,
         notes,
         sku
@@ -96,7 +102,7 @@ export const actions: Actions = {
     const make = (String(form.get('make') || '')).trim();
     const model = (String(form.get('model') || '')).trim();
     const serial = (String(form.get('serial') || '')).trim() || null;
-    const source = (String(form.get('source') || '')).trim() || null;
+    const vendorId = String(form.get('vendorId') || '') || null;
     const condition = (String(form.get('condition') || '')).trim() || null;
     const notes = (String(form.get('notes') || '')).trim() || null;
     const statusRaw = (String(form.get('status') || '')).trim();
@@ -123,19 +129,23 @@ export const actions: Actions = {
       data.make = make;
     }
     if (form.has('model')) {
-      if (!model) return { success: false, error: 'Model is required' };
       data.model = model;
     }
     if (form.has('serial')) data.serial = serial;
-    if (form.has('source')) data.source = source;
     if (form.has('condition')) data.condition = condition;
-    if (form.has('notes')) data.notes = notes;
+    if (form.has('vendorId')) {
+      if (vendorId) {
+        const v = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { name: true } });
+        data.source = v?.name || null;
+      } else {
+        data.source = null;
+      }
+    }
     if (status) data.status = status;
 
     if (Object.keys(data).length === 0) {
       return { success: false, error: 'No fields to update' };
     }
-
     await prisma.device.update({ where: { id }, data });
 
     return { success: true, id };

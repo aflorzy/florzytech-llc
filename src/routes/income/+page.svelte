@@ -83,7 +83,7 @@
       taxCollectedCents: usdNumToCents(builderTaxCollectedCents),
       lines: builderLines
     };
-    const res = await fetch('?/create_lines', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+    const res = await fetch('/income/create-lines', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.success) {
       alert(j.error || 'Failed to save income with lines');

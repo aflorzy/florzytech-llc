@@ -12,7 +12,8 @@
     notes?: string | null;
     netCents: number;
   };
-  let { data } = $props<{ data: { devices: DeviceListItem[] } }>();
+  type VendorRef = { id: string; name: string };
+  let { data } = $props<{ data: { devices: DeviceListItem[]; vendors: VendorRef[] } }>();
   let formOpen = $state(false);
   let editingId = $state<string | null>(null);
   let editing = $derived((data.devices.find((d: DeviceListItem) => d.id === editingId) ?? null) as DeviceListItem | null);
@@ -54,8 +55,13 @@
       <input id="serial" name="serial" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" />
     </div>
     <div>
-      <label class="block text-sm" for="source">Source</label>
-      <input id="source" name="source" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" />
+      <label class="block text-sm" for="vendorId">Vendor</label>
+      <select id="vendorId" name="vendorId" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900">
+        <option value="">-</option>
+        {#each data.vendors as v}
+          <option value={v.id}>{v.name}</option>
+        {/each}
+      </select>
     </div>
     <div>
       <label class="block text-sm" for="condition">Condition</label>
@@ -157,8 +163,13 @@
           <input id={`serial-${editing.id}`} name="serial" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={editing.serial || ''} />
         </div>
         <div>
-          <label class="block text-sm" for={`source-${editing.id}`}>Source</label>
-          <input id={`source-${editing.id}`} name="source" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={editing.source || ''} />
+          <label class="block text-sm" for={`vendorId-${editing.id}`}>Vendor</label>
+          <select id={`vendorId-${editing.id}`} name="vendorId" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900">
+            <option value="" selected={!editing.source}>-</option>
+            {#each data.vendors as v}
+              <option value={v.id} selected={editing.source === v.name}>{v.name}</option>
+            {/each}
+          </select>
         </div>
         <div>
           <label class="block text-sm" for={`condition-${editing.id}`}>Condition</label>

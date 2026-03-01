@@ -10,17 +10,26 @@
     "postinstall": "svelte-kit sync",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "prisma db seed"
+    "prisma:seed": "prisma db seed",
+    "test:integration": "vitest run --config vitest.config.ts tests/integration/smoke.test.ts tests/integration/dashboard-spending-power.test.ts tests/integration/expenses-split.test.ts tests/integration/income-actions.test.ts",
+    "test:e2e": "playwright test --config playwright.config.ts",
+    "test:all": "npm run test:integration && npm run test:e2e && npm run test:integration:secondary",
+    "test:db:reset": "node tests/utils/db-reset.mjs",
+    "test:db:seed": "node tests/utils/seed-fixtures.mjs",
+    "test:setup": "npm run test:db:reset && npm run test:db:seed",
+    "test:integration:secondary": "vitest run --config vitest.config.ts tests/integration/work-order-financials.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.19.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.2",
     "@sveltejs/adapter-node": "^5.3.2",
     "@sveltejs/kit": "^2.43.2",
     "@types/node": "^22.7.0",
     "autoprefixer": "^10.4.20",
+    "dotenv": "^16.6.1",
     "postcss": "^8.4.47",
     "prisma": "^5.19.1",
     "svelte": "^5.1.0",
@@ -28,7 +37,8 @@
     "tailwindcss": "^3.4.14",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.2",
-    "vite": "^6.3.0"
+    "vite": "^6.3.0",
+    "vitest": "^3.2.4"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

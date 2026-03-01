@@ -131,10 +131,10 @@
 </form>
 
 <div class="flex items-center gap-2 mb-4">
-  <button class="px-3 py-2 rounded bg-blue-600 text-white" onclick={() => (open = !open)}>
+  <button data-testid="expenses-toggle-form" class="px-3 py-2 rounded bg-blue-600 text-white" onclick={() => (open = !open)}>
     {open ? 'Close' : 'Add Expense'}
   </button>
-  <button class="px-3 py-2 rounded bg-purple-700 text-white" onclick={() => { splitOpen = true; if (splitLines.length === 0) addSplitLine(); }}>
+  <button data-testid="expenses-open-split-receipt" class="px-3 py-2 rounded bg-purple-700 text-white" onclick={() => { splitOpen = true; if (splitLines.length === 0) addSplitLine(); }}>
     Split Receipt
   </button>
   <span class="text-xs text-zinc-500">Create multiple expenses from one invoice with allocated tax/shipping/fees.</span>
@@ -200,7 +200,7 @@
       <textarea id="notes" name="notes" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900"></textarea>
     </div>
     <div class="md:col-span-3">
-      <button class="px-3 py-2 rounded bg-green-600 text-white">Save Expense</button>
+      <button data-testid="expenses-save-expense" class="px-3 py-2 rounded bg-green-600 text-white">Save Expense</button>
     </div>
   </form>
 {/if}
@@ -388,7 +388,7 @@
           </table>
         </div>
         <div class="mt-3 flex items-center justify-end gap-2">
-          <button class="px-3 py-2 rounded bg-green-600 text-white" onclick={submitSplit}>Save Split</button>
+          <button data-testid="expenses-save-split-receipt" class="px-3 py-2 rounded bg-green-600 text-white" onclick={submitSplit}>Save Split</button>
         </div>
       </div>
     </div>
@@ -520,5 +520,3 @@
     {/each}
   </tbody>
 </table>
-
-

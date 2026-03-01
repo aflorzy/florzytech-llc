@@ -117,7 +117,7 @@
 </form>
 
 <div class="flex items-center gap-2 mb-4">
-  <button class="px-3 py-2 rounded bg-blue-600 text-white" onclick={() => (open = !open)}>
+  <button data-testid="income-toggle-form" class="px-3 py-2 rounded bg-blue-600 text-white" onclick={() => (open = !open)}>
     {open ? 'Close' : 'Add Income'}
   </button>
   <button class="px-3 py-2 rounded bg-purple-700 text-white" onclick={() => { builderOpen = true; if (builderLines.length === 0) addBuilderLine(); }}>
@@ -225,7 +225,7 @@
       <textarea id="notes" name="notes" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900"></textarea>
     </div>
     <div class="md:col-span-3">
-      <button class="px-3 py-2 rounded bg-green-600 text-white">Save Income</button>
+      <button data-testid="income-save-income" class="px-3 py-2 rounded bg-green-600 text-white">Save Income</button>
     </div>
   </form>
 {/if}

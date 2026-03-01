@@ -36,7 +36,7 @@
 
 <h1 class="text-2xl font-semibold mb-4">Devices</h1>
 
-<button class="btn mb-4 px-3 py-2 rounded bg-blue-600 text-white" onclick={() => (formOpen = !formOpen)}>
+<button data-testid="devices-toggle-form" class="btn mb-4 px-3 py-2 rounded bg-blue-600 text-white" onclick={() => (formOpen = !formOpen)}>
   {formOpen ? 'Close' : 'Add Device'}
 </button>
 
@@ -73,7 +73,7 @@
       <textarea id="notes" name="notes" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900"></textarea>
     </div>
     <div class="md:col-span-2">
-      <button type="submit" class="px-3 py-2 rounded bg-green-600 text-white">Save Device</button>
+      <button data-testid="devices-save-device" type="submit" class="px-3 py-2 rounded bg-green-600 text-white">Save Device</button>
     </div>
   </form>
 {/if}
@@ -188,5 +188,4 @@
     </div>
   </div>
 {/if}
-
 

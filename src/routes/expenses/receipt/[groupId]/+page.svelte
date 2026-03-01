@@ -63,9 +63,8 @@
   })));
 
   // Receipt-level notes: prefill from common line notes if all equal; otherwise empty
-  let receiptNotes = $state<string>('');
-  const uniqueNotes = Array.from(new Set(lines.map((l) => (l.notes || '').trim())));
-  receiptNotes = uniqueNotes.length === 1 ? (uniqueNotes[0] || '') : '';
+  const uniqueNotesInitial: string[] = Array.from(new Set(data.lines.map((l: ExpenseLine) => (l.notes || '').trim())));
+  let receiptNotes = $state<string>(uniqueNotesInitial.length === 1 ? (uniqueNotesInitial[0] || '') : '');
   let applyNotesToAll = $state(false);
 
   function usdToCents(v: string): number { const n = parseFloat(v); return Math.round((n || 0) * 100); }

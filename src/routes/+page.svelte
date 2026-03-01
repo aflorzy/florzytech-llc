@@ -47,12 +47,12 @@
 <section class="grid gap-4 md:grid-cols-4 mb-6">
   <div class="border rounded p-4 bg-white dark:bg-zinc-900">
     <h2 class="text-zinc-500 text-sm mb-1">Spending Power</h2>
-    <div class={`text-3xl font-extrabold ${signClass(data.totals.spendingPowerCents)}`}>{fmtUSD(data.totals.spendingPowerCents)}</div>
+    <div data-testid="dashboard-spending-power" class={`text-3xl font-extrabold ${signClass(data.totals.spendingPowerCents)}`}>{fmtUSD(data.totals.spendingPowerCents)}</div>
     <p class="text-xs text-zinc-500 mt-2">Money In (Net) - Money Out</p>
   </div>
   <div class="border rounded p-4 bg-white dark:bg-zinc-900">
     <h2 class="text-zinc-500 text-sm mb-1">Money In (Net)</h2>
-    <div class="text-3xl font-extrabold text-green-600">{fmtUSD(data.totals.moneyInNetCents)}</div>
+    <div data-testid="dashboard-money-in-net" class="text-3xl font-extrabold text-green-600">{fmtUSD(data.totals.moneyInNetCents)}</div>
     <p class="text-xs text-zinc-500 mt-2">Sales/Service - fees - shipping costs + shipping revenue</p>
     <div class="mt-2 text-xs">
       <a class="text-blue-600 hover:underline" href="/income">View all transactions</a>
@@ -62,7 +62,7 @@
   </div>
   <div class="border rounded p-4 bg-white dark:bg-zinc-900">
     <h2 class="text-zinc-500 text-sm mb-1">Money Out</h2>
-    <div class="text-3xl font-extrabold text-red-600">{fmtUSD(data.totals.moneyOutCents)}</div>
+    <div data-testid="dashboard-money-out" class="text-3xl font-extrabold text-red-600">{fmtUSD(data.totals.moneyOutCents)}</div>
     <p class="text-xs text-zinc-500 mt-2">Expenses</p>
     <div class="mt-2 text-xs">
       <a class="text-blue-600 hover:underline" href="/expenses">View all transactions</a>

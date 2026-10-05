@@ -74,6 +74,10 @@
 - Income `create` action dropped `taxCollected`.
 - Split-receipt endpoint ignored part lines, so parts bought on split receipts never entered inventory.
 - Expense `update` left `subtotalCents` stale, breaking `amount = subtotal + tax + shipping + fees`.
+- Parts inventory value ignored the unit cost entered on the Parts page (only `averageCostCents` counted, which was 0 for every part), so the dashboard showed $0.
+- A receipt against stock with no average cost valued the existing stock at $0 when averaging.
+- Parts consumed (30d) still counted consumption that was reversed by deleting a work order item.
+- Work-order profit charged a part twice when its purchase was linked to the device and the part was also consumed from stock; expenses received into inventory are now left out of device expenses.
 
 ## Known Risks / Blockers
 - CI and local runs share one Neon test branch; overlapping runs will corrupt each other's fixtures. The workflow serializes itself with a `concurrency` group, but do not run tests locally while a CI run is in progress.

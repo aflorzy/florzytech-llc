@@ -124,6 +124,33 @@ describe('dashboard metrics contract', () => {
     expect(data.totals.spendingPowerCents).toBe(13700);
   });
 
+  it('values stock at the manually entered unit cost when a part has no average cost yet', async () => {
+    const prisma = getPrisma();
+    // Entered on the Parts page: unit cost only, never received through a receipt
+    await prisma.part.create({ data: { name: 'Manual cost', quantity: 3, unitCostCents: 400 } });
+    // Average cost wins once it exists
+    await prisma.part.create({ data: { name: 'Averaged', quantity: 2, averageCostCents: 250, unitCostCents: 999 } });
+    await prisma.part.create({ data: { name: 'No cost', quantity: 7 } });
+
+    const data = await loadDashboard();
+    expect(data.totals.partsInventoryValueCents).toBe(3 * 400 + 2 * 250);
+    expect(data.totals.spendingPowerCents).toBe(13700);
+  });
+
+  it('does not count a consumption that was reversed by deleting the work order item', async () => {
+    const prisma = getPrisma();
+    const part = await prisma.part.create({ data: { name: 'Battery', quantity: 10, unitCostCents: 350 } });
+    const wo = await prisma.workOrder.create({ data: { code: 'WO-TEST-REVERSAL' } });
+    const movement = { partId: part.id, workOrderId: wo.id, quantity: 2, unitCostCents: 350, totalCostCents: 700 };
+
+    await prisma.partInventoryMovement.create({ data: { ...movement, type: 'CONSUME' } });
+    await prisma.partInventoryMovement.create({ data: { ...movement, type: 'CONSUME' } });
+    await prisma.partInventoryMovement.create({ data: { ...movement, type: 'ADJUSTMENT' } });
+
+    const data = await loadDashboard();
+    expect(data.last30.partsConsumedCents).toBe(700);
+  });
+
   it('sums only active CONSUME movements from the last 30 days as parts consumed', async () => {
     const prisma = getPrisma();
     const part = await prisma.part.create({ data: { name: 'Battery', quantity: 10, averageCostCents: 350 } });

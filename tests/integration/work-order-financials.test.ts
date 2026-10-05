@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { actions as workOrderActions, load as workOrderLoad } from '../../src/routes/work-orders/[id]/+page.server';
-import { disconnectDb, getPrisma, makeFormRequest, resetAndSeedDb } from './helpers';
+import { POST as splitPost } from '../../src/routes/expenses/split/+server';
+import { disconnectDb, getPrisma, makeFormRequest, makeJsonRequest, resetAndSeedDb } from './helpers';
 
 describe('work order inventory and financial rollup', () => {
   beforeEach(async () => {
@@ -104,5 +105,42 @@ describe('work order inventory and financial rollup', () => {
     expect(data.summary.partsCostCents).toBe(1200);
     expect(data.summary.deviceExpensesCents).toBe(700);
     expect(data.summary.profitCents).toBe(7600);
+  });
+
+  it('charges a part bought for a device once: as consumed stock, not also as a device expense', async () => {
+    const prisma = getPrisma();
+    const device = await prisma.device.create({ data: { sku: 'FZ-TEST-ONCE', make: 'Sony', model: 'PS5' } });
+    const part = await prisma.part.create({ data: { name: 'HDMI Port', quantity: 0 } });
+    const partsCategory = await prisma.category.findFirstOrThrow({ where: { kind: 'expense', name: 'Parts' }, select: { id: true } });
+    const wo = await prisma.workOrder.create({ data: { code: 'WO-TEST-ONCE' } });
+    await prisma.workOrderDevice.create({ data: { workOrderId: wo.id, deviceId: device.id, role: 'PRIMARY' } });
+
+    // Receipt: one line buys the part for this device and receives it into inventory,
+    // the other is a device-only cost that never touches inventory.
+    const response = await splitPost({
+      request: makeJsonRequest({
+        date: '2026-03-01',
+        allocationMethod: 'EVEN',
+        totals: { totalTaxCents: 0, totalShippingCents: 0, totalOtherFeesCents: 0 },
+        lines: [
+          { categoryId: partsCategory.id, deviceId: device.id, subtotalCents: 2000, partId: part.id, quantity: 1 },
+          { categoryId: partsCategory.id, deviceId: device.id, subtotalCents: 700 }
+        ]
+      })
+    } as Parameters<typeof splitPost>[0]);
+    expect(response.status).toBe(200);
+
+    const addResult = await workOrderActions.add_item({
+      request: makeFormRequest({ type: 'PART', partId: part.id, quantity: '1' }),
+      params: { id: wo.id }
+    } as Parameters<typeof workOrderActions.add_item>[0]);
+    expect(addResult).toEqual({ success: true });
+
+    await prisma.income.create({ data: { date: new Date(), type: 'SERVICE', amountCents: 10000, workOrderId: wo.id } });
+
+    const data = (await workOrderLoad({ params: { id: wo.id } } as Parameters<typeof workOrderLoad>[0])) as any;
+    expect(data.summary.partsCostCents).toBe(2000);
+    expect(data.summary.deviceExpensesCents).toBe(700);
+    expect(data.summary.profitCents).toBe(10000 - 2000 - 700);
   });
 });

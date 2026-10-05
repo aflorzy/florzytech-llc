@@ -1,5 +1,6 @@
 import type { PageServerLoad } from './$types';
 import { prisma } from '$lib/server/prisma';
+import { effectiveUnitCostCents } from '$lib/parts';
 
 function zero(n: number | null | undefined): number { return n ?? 0; }
 
@@ -8,7 +9,7 @@ export const load: PageServerLoad = async () => {
   const d30 = new Date(now);
   d30.setDate(d30.getDate() - 30);
 
-  const [incomeAgg, expenseAgg, incomeAgg30, expenseAgg30, deviceCounts, partsList, partsConsumed30, openWorkOrders] = await Promise.all([
+  const [incomeAgg, expenseAgg, incomeAgg30, expenseAgg30, deviceCounts, partsList, partsConsumed30, partsReversed30, openWorkOrders] = await Promise.all([
     prisma.income.aggregate({
       where: { archivedAt: null },
       _sum: {
@@ -43,10 +44,12 @@ export const load: PageServerLoad = async () => {
       prisma.device.count({ where: { archivedAt: null } }),
       prisma.device.count({ where: { archivedAt: { not: null } } })
     ]),
-    // Parts list to compute inventory value = quantity * averageCostCents
-    prisma.part.findMany({ where: { archivedAt: null }, select: { id: true, quantity: true, averageCostCents: true } }),
+    // Parts list to compute inventory value = quantity * effective unit cost
+    prisma.part.findMany({ where: { archivedAt: null }, select: { id: true, quantity: true, averageCostCents: true, unitCostCents: true } }),
     // Parts consumed in last 30 days (COGS from movements)
     prisma.partInventoryMovement.aggregate({ where: { archivedAt: null, type: 'CONSUME', createdAt: { gte: d30 } }, _sum: { totalCostCents: true } }),
+    // Consumption undone by deleting a work order item is recorded as an ADJUSTMENT on that work order
+    prisma.partInventoryMovement.aggregate({ where: { archivedAt: null, type: 'ADJUSTMENT', workOrderId: { not: null }, createdAt: { gte: d30 } }, _sum: { totalCostCents: true } }),
     // Open work orders count (not cancelled or delivered)
     prisma.workOrder.count({ where: { archivedAt: null, status: { notIn: ['DELIVERED', 'CANCELLED'] } } })
   ]);
@@ -70,8 +73,8 @@ export const load: PageServerLoad = async () => {
 
   // Additional metrics
   const incomeGrossCents = zero(incomeSum.amountCents);
-  const partsInventoryValueCents = partsList.reduce((s, p) => s + (zero(p.quantity) * zero(p.averageCostCents)), 0);
-  const partsConsumedCents30 = zero(partsConsumed30._sum.totalCostCents);
+  const partsInventoryValueCents = partsList.reduce((s, p) => s + (zero(p.quantity) * effectiveUnitCostCents(p)), 0);
+  const partsConsumedCents30 = Math.max(0, zero(partsConsumed30._sum.totalCostCents) - zero(partsReversed30._sum.totalCostCents));
 
   return {
     totals: {

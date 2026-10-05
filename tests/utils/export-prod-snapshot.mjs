@@ -77,11 +77,14 @@ async function main() {
         const [inc30] = await tx.$queryRawUnsafe(incomeSql(true), d30);
         const [exp30] = await tx.$queryRawUnsafe(expenseSql(true), d30);
         const [partsValue] = await tx.$queryRawUnsafe(
-          `SELECT COALESCE(SUM("quantity" * "averageCostCents"),0) AS total FROM "Part" WHERE "archivedAt" IS NULL`
+          `SELECT COALESCE(SUM("quantity" * CASE WHEN "averageCostCents" > 0 THEN "averageCostCents" ELSE GREATEST(COALESCE("unitCostCents",0),0) END),0) AS total
+           FROM "Part" WHERE "archivedAt" IS NULL`
         );
         const [consumed30] = await tx.$queryRawUnsafe(
-          `SELECT COALESCE(SUM("totalCostCents"),0) AS total FROM "PartInventoryMovement"
-           WHERE "archivedAt" IS NULL AND "type" = 'CONSUME' AND "createdAt" >= $1`,
+          `SELECT GREATEST(0,
+                    COALESCE(SUM("totalCostCents") FILTER (WHERE "type" = 'CONSUME'),0)
+                  - COALESCE(SUM("totalCostCents") FILTER (WHERE "type" = 'ADJUSTMENT' AND "workOrderId" IS NOT NULL),0)) AS total
+           FROM "PartInventoryMovement" WHERE "archivedAt" IS NULL AND "createdAt" >= $1`,
           d30
         );
         const [deviceCounts] = await tx.$queryRawUnsafe(

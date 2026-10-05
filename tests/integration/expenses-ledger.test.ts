@@ -361,6 +361,29 @@ describe('split receipt effect on the ledger', () => {
     expect(data.totals.moneyOutCents).toBe(15000 + 1100);
   });
 
+  it('averages a receipt against existing stock valued at its manually entered unit cost', async () => {
+    const prisma = getPrisma();
+    const categoryId = await partsCategoryId();
+    // Stock entered on the Parts page: unit cost set, no average cost yet
+    const part = await prisma.part.create({ data: { name: 'Legacy stock', quantity: 4, unitCostCents: 500 } });
+
+    const response = await postSplit({
+      date: todayStr(),
+      allocationMethod: 'EVEN',
+      totals: { totalTaxCents: 100, totalShippingCents: 0, totalOtherFeesCents: 0 },
+      lines: [{ categoryId, subtotalCents: 1000, partId: part.id, quantity: 2 }]
+    });
+    expect(response.status).toBe(200);
+
+    // (4 * 500 + 1100) / 6 = 516.67, not 1100 / 6
+    const after = await prisma.part.findUniqueOrThrow({ where: { id: part.id } });
+    expect(after.quantity).toBe(6);
+    expect(after.averageCostCents).toBe(517);
+
+    const data = await loadDashboard();
+    expect(data.totals.partsInventoryValueCents).toBe(6 * 517);
+  });
+
   it('creates a new part inline from a split line and leaves non-part lines out of inventory', async () => {
     const prisma = getPrisma();
     const categoryId = await partsCategoryId();

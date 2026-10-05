@@ -1,6 +1,7 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { prisma } from '$lib/server/prisma';
 import { allocateProportional, allocateEven, type AllocationMethod } from '$lib/allocation';
+import { effectiveUnitCostCents } from '$lib/parts';
 import { PartInventoryMovementType } from '@prisma/client';
 import { randomUUID } from 'crypto';
 
@@ -125,12 +126,12 @@ export const POST: RequestHandler = async ({ request }) => {
         const newPartName = (line.newPartName || '').trim();
         if ((line.partId || newPartName) && qty > 0) {
           const part = line.partId
-            ? await tx.part.findUnique({ where: { id: line.partId }, select: { id: true, quantity: true, averageCostCents: true } })
-            : await tx.part.create({ data: { name: newPartName, quantity: 0, averageCostCents: 0 }, select: { id: true, quantity: true, averageCostCents: true } });
+            ? await tx.part.findUnique({ where: { id: line.partId }, select: { id: true, quantity: true, averageCostCents: true, unitCostCents: true } })
+            : await tx.part.create({ data: { name: newPartName, quantity: 0, averageCostCents: 0 }, select: { id: true, quantity: true, averageCostCents: true, unitCostCents: true } });
           if (!part) throw new Response(JSON.stringify({ success: false, error: 'Part not found' }), { status: 400 });
 
           const newQty = part.quantity + qty;
-          const newAvg = Math.round((part.averageCostCents * part.quantity + amountCents) / newQty);
+          const newAvg = Math.round((effectiveUnitCostCents(part) * part.quantity + amountCents) / newQty);
           await tx.part.update({ where: { id: part.id }, data: { quantity: newQty, averageCostCents: newAvg } });
           await tx.partInventoryMovement.create({
             data: {

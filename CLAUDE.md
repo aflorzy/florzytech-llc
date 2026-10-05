@@ -56,6 +56,7 @@ npx vitest run --config vitest.config.ts tests/integration/<file>.test.ts
 **Utility modules:**
 - `src/lib/sku.ts` — SKU generation (`buildSku`, `brandCode`).
 - `src/lib/allocation.ts` — split-receipt cost allocation across lines (PROPORTIONAL_SUBTOTAL, EVEN, MANUAL).
+- `src/lib/parts.ts` — `effectiveUnitCostCents`: a part's `averageCostCents` once it has been received through a receipt, else the hand-entered `unitCostCents`. Use it wherever stock is valued.
 
 **Testing strategy:**
 - Integration tests (`tests/integration/`) run against a real test DB via vitest. Fully sequential (`fileParallelism: false`). Each test calls `resetAndSeedDb()` via `tests/integration/helpers.ts` in `beforeEach`.

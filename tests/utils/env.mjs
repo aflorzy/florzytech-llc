@@ -20,6 +20,16 @@ function parseEnvFile(filePath) {
   return out;
 }
 
+// Compare host + database name so a differently-formatted copy of the same URL still matches.
+function dbIdentity(url) {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
 export function loadTestEnv() {
   const cwd = process.cwd();
   const envPath = path.join(cwd, '.env');
@@ -33,6 +43,12 @@ export function loadTestEnv() {
 
   if (!merged.DATABASE_URL_TEST) {
     throw new Error('Missing DATABASE_URL_TEST. Set it in .env.test or environment variables.');
+  }
+
+  // Tests truncate every table. Refuse to run if the test URL is the app database from .env.
+  const appDbUrl = parseEnvFile(envPath).DATABASE_URL;
+  if (appDbUrl && dbIdentity(appDbUrl) === dbIdentity(merged.DATABASE_URL_TEST)) {
+    throw new Error('DATABASE_URL_TEST points at the same database as DATABASE_URL in .env. Refusing to run tests against it.');
   }
 
   process.env.DATABASE_URL_TEST = merged.DATABASE_URL_TEST;

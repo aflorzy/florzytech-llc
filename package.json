@@ -11,13 +11,14 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma db seed",
-    "test:integration": "vitest run --config vitest.config.ts tests/integration/smoke.test.ts tests/integration/dashboard-spending-power.test.ts tests/integration/expenses-split.test.ts tests/integration/income-actions.test.ts",
+    "test:unit": "vitest run --config vitest.config.ts tests/unit",
+    "test:integration": "vitest run --config vitest.config.ts tests/integration",
     "test:e2e": "playwright test --config playwright.config.ts",
-    "test:all": "npm run test:integration && npm run test:e2e && npm run test:integration:secondary",
+    "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e",
     "test:db:reset": "node tests/utils/db-reset.mjs",
     "test:db:seed": "node tests/utils/seed-fixtures.mjs",
-    "test:setup": "npm run test:db:reset && npm run test:db:seed",
-    "test:integration:secondary": "vitest run --config vitest.config.ts tests/integration/work-order-financials.test.ts"
+    "test:snapshot:export": "node tests/utils/export-prod-snapshot.mjs",
+    "test:setup": "npm run test:db:reset && npm run test:db:seed"
   },
   "dependencies": {
     "@prisma/client": "^5.19.1",

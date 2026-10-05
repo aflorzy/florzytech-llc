@@ -43,16 +43,26 @@
 - [x] Device/work-order profit rollup integration tests.
 - [x] Focused unit tests for `src/lib/allocation.ts`.
 
+### Gate 5: Ledger Coverage + CI Gate
+- [x] Dashboard metrics contract (full totals/last30 shape, tax, fees, parts value, parts consumed, device and work-order counts).
+- [x] Income create/update/delete/load and Sale Builder (`create-lines`) integration tests.
+- [x] Expense create/update/delete/load and split-receipt ledger-effect integration tests.
+- [x] Guard against `DATABASE_URL_TEST` pointing at the `.env` app database.
+- [x] Gitea Actions workflow (`.gitea/workflows/ci.yml`).
+- [x] Add `DATABASE_URL_TEST` repo secret in Gitea.
+- [ ] Require the `Type-check, build, and test` status on `master` branch protection.
+- [x] Production snapshot export + replay suite (`prod-snapshot.test.ts`, skipped until the fixture is exported).
+
 ## Quality Gate (Local/CI)
 - Required command before merge/deploy:
   - `npm run test:all`
 - Required environment:
   - `DATABASE_URL_TEST` must point to isolated test database.
-- Execution order:
-  1. `npm run test:db:reset`
-  2. `npm run test:db:seed`
-  3. `npm run test:integration`
-  4. `npm run test:e2e`
+- Execution order (`test:all`; each suite resets and seeds the DB itself):
+  1. `npm run test:unit`
+  2. `npm run test:integration`
+  3. `npm run test:e2e`
+- CI: `.gitea/workflows/ci.yml` runs `check`, `build`, `prisma migrate deploy` (test DB), then the three suites on every PR to `master`.
 
 ## Flake Prevention Notes
 - Deterministic DB state by hard reset + deterministic seed data.
@@ -60,7 +70,13 @@
 - e2e workflows reset DB before each test case.
 - Integration runs in non-concurrent mode to avoid cross-test DB races.
 
+## Bugs Fixed Under Test (tests written first and confirmed failing)
+- Income `create` action dropped `taxCollected`.
+- Split-receipt endpoint ignored part lines, so parts bought on split receipts never entered inventory.
+- Expense `update` left `subtotalCents` stale, breaking `amount = subtotal + tax + shipping + fees`.
+
 ## Known Risks / Blockers
+- CI and local runs share one Neon test branch; overlapping runs will corrupt each other's fixtures. The workflow serializes itself with a `concurrency` group, but do not run tests locally while a CI run is in progress.
 - `DATABASE_URL_TEST` must remain isolated from production data.
 - E2E selectors should continue using stable IDs/labels to avoid UI-structure brittleness.
 - Any schema changes must preserve deterministic reset/seed behavior.
@@ -96,6 +112,12 @@
   - `tests/unit/allocation.test.ts`
 - 2026-03-01: Validation run executed:
   - `npm run check` fails due missing test deps and one pre-existing app typing issue.
+- 2026-10-05: Resumed branch. Baseline verified green (integration, unit, e2e after installing the matching Playwright chromium build).
+- 2026-10-05: Added Gate 5 coverage: `dashboard-metrics`, `income-ledger`, `expenses-ledger` integration suites.
+- 2026-10-05: `test:integration` now runs the whole `tests/integration` directory; removed `test:integration:secondary`; added `test:unit`.
+- 2026-10-05: Playwright no longer reuses an existing server on port 4173 (it could be attached to the production DB).
+- 2026-10-05: Added `.gitea/workflows/ci.yml`, `Dockerfile`, and `/healthz`.
+- 2026-10-05: Fixed three ledger bugs test-first (see "Bugs Fixed Under Test").
 
 ## Evidence
 - Network install failures observed while running:

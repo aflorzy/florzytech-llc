@@ -23,8 +23,20 @@ export async function resetAndSeedDb() {
   await seedFixtures();
 }
 
+// Empty database with no fixtures, for suites that load their own data.
+export async function resetDbOnly() {
+  loadTestEnv();
+  await disconnectDb();
+  const { resetDb } = await import('../utils/db-reset.mjs');
+  await resetDb();
+}
+
 export function getPrisma() {
   return ensurePrisma();
+}
+
+export function makeLoadEvent<T>(url = 'http://localhost/'): T {
+  return { url: new URL(url) } as T;
 }
 
 export function makeJsonRequest(payload: unknown): Request {

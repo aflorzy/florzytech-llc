@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { effectiveUnitCostCents } from '$lib/parts';
+
   type Part = {
     id: string;
     name: string;
@@ -6,12 +8,17 @@
     partNumber?: string | null;
     quantity: number;
     unitCostCents?: number | null;
+    averageCostCents: number;
     notes?: string | null;
     url?: string | null;
   };
   let { data } = $props<{ data: { parts: Part[] } }>();
   let open = $state(false);
   let editingId = $state<string | null>(null);
+
+  // Once a part has been received on a receipt its cost is the running average, not the hand-entered unit cost
+  const isAveraged = (p: Part) => (p.averageCostCents || 0) > 0;
+  const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 </script>
 
 <h1 class="text-2xl font-semibold mb-4">Parts</h1>
@@ -46,6 +53,7 @@
     <div>
       <label class="block text-sm" for="unitCost">Unit Cost (USD, optional)</label>
       <input id="unitCost" name="unitCost" type="number" step="0.01" min="0" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" />
+      <p class="text-xs text-zinc-500 mt-1">Used until the part is bought on a split receipt. After that, the average cost from receipts replaces it.</p>
     </div>
     <div class="md:col-span-3">
       <label class="block text-sm" for="notes">Notes</label>
@@ -76,7 +84,16 @@
         <td class="p-2">{p.sku || '-'}</td>
         <td class="p-2">{p.partNumber || '-'}</td>
         <td class="p-2">{p.quantity}</td>
-        <td class="p-2">{p.unitCostCents != null ? `$${(p.unitCostCents/100).toFixed(2)}` : '-'}</td>
+        <td class="p-2">
+          {#if isAveraged(p)}
+            {usd(p.averageCostCents)}
+            <span class="ml-1 px-1.5 py-0.5 rounded text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200" title="Average cost from receipts. It is recalculated on each new receipt and replaces any unit cost entered by hand.">avg</span>
+          {:else if p.unitCostCents != null}
+            {usd(effectiveUnitCostCents(p))}
+          {:else}
+            -
+          {/if}
+        </td>
         <td class="p-2">
           {#if p.url}
             <a class="text-blue-600 hover:underline" href={p.url} target="_blank" rel="noopener noreferrer">Open</a>
@@ -128,6 +145,11 @@
               <div>
                 <label class="block text-sm" for={`unitCost-${p.id}`}>Unit Cost (USD)</label>
                 <input id={`unitCost-${p.id}`} name="unitCost" type="number" step="0.01" min="0" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={p.unitCostCents != null ? (p.unitCostCents/100) : ''} />
+                {#if isAveraged(p)}
+                  <p class="text-xs text-amber-700 dark:text-amber-400 mt-1">This part is costed at its receipt average of {usd(p.averageCostCents)}. A unit cost entered here is saved but not used, and the average is recalculated on each new receipt.</p>
+                {:else}
+                  <p class="text-xs text-zinc-500 mt-1">Used until the part is bought on a split receipt. After that, the average cost from receipts replaces it.</p>
+                {/if}
               </div>
               <div class="md:col-span-3">
                 <label class="block text-sm" for={`notes-${p.id}`}>Notes</label>

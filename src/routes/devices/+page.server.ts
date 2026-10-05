@@ -1,6 +1,7 @@
 import type { Actions, PageServerLoad } from './$types';
 import { prisma } from '$lib/server/prisma';
 import { buildSku } from '$lib/sku';
+import { loadDeviceFinancials } from '$lib/server/device-financials';
 import { DeviceStatus } from '@prisma/client';
 
 export const load: PageServerLoad = async () => {
@@ -14,46 +15,8 @@ export const load: PageServerLoad = async () => {
     return { devices: [], vendors };
   }
 
-  const [expenseGroups, incomeGroups] = await Promise.all([
-    prisma.expense.groupBy({
-      by: ['deviceId'],
-      where: { deviceId: { in: ids }, archivedAt: null },
-      _sum: { amountCents: true }
-    }),
-    prisma.income.groupBy({
-      by: ['deviceId'],
-      where: { deviceId: { in: ids }, archivedAt: null },
-      _sum: {
-        amountCents: true,
-        platformFeesCents: true,
-        paymentFeesCents: true,
-        shippingRevenueCents: true,
-        shippingCostCents: true
-      }
-    })
-  ]);
-
-  const expenseMap = new Map<string, number>();
-  for (const g of expenseGroups) {
-    if (g.deviceId) expenseMap.set(g.deviceId, g._sum.amountCents || 0);
-  }
-  const incomeMap = new Map<string, { income: number; fees: number; shipNet: number }>();
-  for (const g of incomeGroups) {
-    if (!g.deviceId) continue;
-    const income = g._sum.amountCents || 0;
-    const fees = (g._sum.platformFeesCents || 0) + (g._sum.paymentFeesCents || 0);
-    const shipNet = (g._sum.shippingRevenueCents || 0) - (g._sum.shippingCostCents || 0);
-    incomeMap.set(g.deviceId, { income, fees, shipNet });
-  }
-
-  const withNet = devices.map((d) => {
-    const exp = expenseMap.get(d.id) || 0;
-    const inc = incomeMap.get(d.id)?.income || 0;
-    const fees = incomeMap.get(d.id)?.fees || 0;
-    const shipNet = incomeMap.get(d.id)?.shipNet || 0;
-    const netCents = inc - exp - fees + shipNet;
-    return { ...d, netCents };
-  });
+  const financials = await loadDeviceFinancials(ids);
+  const withNet = devices.map((d) => ({ ...d, netCents: financials.get(d.id)?.netCents ?? 0 }));
 
   const vendors = await prisma.vendor.findMany({ where: { archivedAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true } });
   return { devices: withNet, vendors };

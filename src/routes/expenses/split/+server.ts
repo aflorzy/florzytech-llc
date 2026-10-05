@@ -101,7 +101,7 @@ export const POST: RequestHandler = async ({ request }) => {
         const line = lines[i];
         const a = allocated[i];
         const amountCents = a.subtotalCents + a.taxCents + a.shippingCents + a.otherFeesCents;
-        const notes = (line.notes || receiptNotes) || null;
+        const notes = (line.notes || '').trim() || null;
         const created = await tx.expense.create({
           data: {
             date,
@@ -117,6 +117,7 @@ export const POST: RequestHandler = async ({ request }) => {
             paymentMethodId,
             deviceId: line.deviceId || null,
             notes,
+            receiptNotes,
             vendorOrderNumber: (body.vendorOrderNumber || undefined)
           }
         });
@@ -141,7 +142,7 @@ export const POST: RequestHandler = async ({ request }) => {
               unitCostCents: Math.max(0, Math.round(amountCents / qty)),
               totalCostCents: amountCents,
               expenseId: created.id,
-              notes
+              notes: notes || receiptNotes
             }
           });
         }

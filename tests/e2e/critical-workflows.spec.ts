@@ -170,3 +170,61 @@ test('customer-brought-device workflow does not include purchase expense', async
   await page.goto('/');
   await expect(page.getByTestId('dashboard-spending-power')).toHaveText('$287.00');
 });
+
+test('Sale Builder sells several devices in one income and credits each device', async ({ page }) => {
+  // 1) Create two devices
+  const devices = [
+    { serial: 'PW-BUILDER-001', model: 'Pixel 7', amount: '300.00', sku: '' },
+    { serial: 'PW-BUILDER-002', model: 'Pixel 8', amount: '100.00', sku: '' }
+  ];
+  await page.goto('/devices');
+  for (const d of devices) {
+    await openCollapsibleForm(page, page.getByTestId('devices-toggle-form'), page.getByLabel('Make'));
+    await page.getByLabel('Make').fill('Google');
+    await page.getByLabel('Model').fill(d.model);
+    await page.getByLabel('Serial/IMEI').fill(d.serial);
+    await submitAndWait(page, page.getByTestId('devices-save-device'));
+    const row = page.locator('tbody tr', { hasText: d.serial }).first();
+    await expect(row).toBeVisible();
+    d.sku = (await row.locator('td').first().innerText()).trim();
+    await page.goto('/devices');
+  }
+
+  // 2) One Sale Builder income with a DEVICE line per device
+  await page.goto('/income');
+  const builder = await openSplitReceiptModal(page, page.getByTestId('income-open-sale-builder'));
+  await builder.locator('#bld-category').selectOption({ label: 'Device Sale' });
+  for (let i = 0; i < devices.length; i++) {
+    if (i > 0) await builder.getByRole('button', { name: 'Add Line' }).click();
+    const row = builder.locator('tbody tr').nth(i);
+    await expect(row).toBeVisible();
+    await row.locator('select').nth(0).selectOption('DEVICE');
+    await selectOptionByLabelContains(row.locator('select').nth(1), devices[i].sku);
+    const amount = row.locator('td').nth(5).getByRole('textbox');
+    await amount.fill(devices[i].amount);
+    await amount.blur();
+  }
+  await Promise.all([
+    page.waitForResponse((res) => res.url().includes('/income/create-lines') && res.status() === 200),
+    builder.getByTestId('income-save-sale-builder').click()
+  ]);
+  await page.waitForLoadState('networkidle');
+
+  // 3) The income row shows the category and both devices
+  await page.goto('/income');
+  const incomeRow = page.locator('tbody tr', { hasText: '$400.00' }).first();
+  await expect(incomeRow).toContainText('Device Sale');
+  for (const d of devices) await expect(incomeRow).toContainText(d.sku);
+
+  // 4) Each device is sold and carries its own share of the sale
+  await page.goto('/devices');
+  for (const d of devices) {
+    const row = page.locator('tbody tr', { hasText: d.serial }).first();
+    await expect(row).toContainText(`$${d.amount}`);
+    await expect(row.locator('select[name="status"]')).toHaveValue('SOLD');
+  }
+
+  // Seed baseline: 137.00, +400.00 => 537.00
+  await page.goto('/');
+  await expect(page.getByTestId('dashboard-spending-power')).toHaveText('$537.00');
+});

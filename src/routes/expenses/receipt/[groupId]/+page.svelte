@@ -25,7 +25,7 @@
   let { data } = $props<{
     data: {
       groupId: string;
-      header?: { date: string | Date; vendorId: string | null; paymentMethodId: string | null; allocationMethod: string | null };
+      header?: { date: string | Date; vendorId: string | null; paymentMethodId: string | null; allocationMethod: string | null; vendorOrderNumber?: string | null; receiptNotes?: string | null };
       lines: ExpenseLine[];
       totals: { tax: number; shipping: number; fees: number };
       categories: Category[];
@@ -62,9 +62,8 @@
     otherFeesCents: l.otherFeesCents || 0
   })));
 
-  // Receipt-level notes: prefill from common line notes if all equal; otherwise empty
-  const uniqueNotesInitial: string[] = Array.from(new Set(data.lines.map((l: ExpenseLine) => (l.notes || '').trim())));
-  let receiptNotes = $state<string>(uniqueNotesInitial.length === 1 ? (uniqueNotesInitial[0] || '') : '');
+  // Receipt-level notes are stored on the receipt, separately from each line's own notes
+  let receiptNotes = $state<string>(data.header?.receiptNotes || '');
   let applyNotesToAll = $state(false);
 
   function usdToCents(v: string): number { const n = parseFloat(v); return Math.round((n || 0) * 100); }
@@ -105,12 +104,11 @@
       vendorId: vendorId || null,
       paymentMethodId: paymentMethodId || null,
       vendorOrderNumber: vendorOrderNumber || null,
+      receiptNotes: receiptNotes || null,
       allocationMethod,
       totals,
       lines: lines.map((ln) => {
-        const note = (receiptNotes || '').trim();
-        const current = (ln.notes || '').trim();
-        const finalNotes = applyNotesToAll ? note : (current || note);
+        const finalNotes = applyNotesToAll ? (receiptNotes || '').trim() : (ln.notes || '').trim();
         return { ...ln, notes: finalNotes };
       })
     };
@@ -190,9 +188,9 @@
   <input id="receipt-notes" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={receiptNotes} />
   <label class="mt-2 inline-flex items-center gap-2 text-sm">
     <input type="checkbox" bind:checked={applyNotesToAll} />
-    <span>Apply receipt notes to all line notes on save</span>
+    <span>Also copy receipt notes into every line's notes on save</span>
   </label>
-  <p class="text-xs text-zinc-500 mt-1">If checked, all line items will use these notes on save (overwriting blank or existing notes).</p>
+  <p class="text-xs text-zinc-500 mt-1">Receipt notes are saved with the receipt. If checked, they also overwrite each line's own notes.</p>
 </div>
 
 <div class="overflow-auto border rounded">

@@ -13,6 +13,8 @@
   type Summary = {
     income: number;
     expenses: number;
+    stockedExpenses: number;
+    partsConsumed: number;
     fees: number;
     shippingNet: number;
     taxCollected: number;
@@ -23,6 +25,8 @@
     date: string | Date;
     amountCents: number;
     notes?: string | null;
+    receiptNotes?: string | null;
+    stocked: boolean;
     category?: { name: string } | null;
     vendor?: { name: string } | null;
     paymentMethod?: { name: string } | null;
@@ -34,13 +38,18 @@
     notes?: string | null;
     category?: { name: string } | null;
     channel?: { name: string } | null;
-    platformFeesCents: number;
-    paymentFeesCents: number;
-    shippingRevenueCents: number;
-    shippingCostCents: number;
-    taxCollectedCents: number;
+    feesCents: number;
+    shippingNetCents: number;
   };
-  let { data } = $props<{ data: { device: Device | null; summary?: Summary; expenses?: ExpenseRow[]; incomes?: IncomeRow[] } }>();
+  type PartUsedRow = {
+    id: string;
+    quantity: number | null;
+    unitCostCentsSnapshot: number | null;
+    totalCostCents: number;
+    part?: { name: string } | null;
+    workOrder: { id: string; code: string };
+  };
+  let { data } = $props<{ data: { device: Device | null; summary?: Summary; expenses?: ExpenseRow[]; incomes?: IncomeRow[]; partsUsed?: PartUsedRow[] } }>();
 </script>
 
 {#if !data.device}
@@ -66,11 +75,15 @@
         <ul class="text-sm space-y-1">
           <li><strong>Total Income:</strong> ${(data.summary.income/100).toFixed(2)}</li>
           <li><strong>Total Expenses:</strong> ${(data.summary.expenses/100).toFixed(2)}</li>
+          <li><strong>Parts Used:</strong> ${(data.summary.partsConsumed/100).toFixed(2)}</li>
           <li><strong>Fees:</strong> ${(data.summary.fees/100).toFixed(2)}</li>
           <li><strong>Shipping Net:</strong> ${(data.summary.shippingNet/100).toFixed(2)}</li>
           <li><strong>Tax Collected:</strong> ${(data.summary.taxCollected/100).toFixed(2)}</li>
           <li class="font-semibold"><strong>Net Profit:</strong> ${(data.summary.netProfitCents/100).toFixed(2)}</li>
         </ul>
+        {#if data.summary.stockedExpenses > 0}
+          <p class="text-xs text-zinc-500 mt-2">${(data.summary.stockedExpenses/100).toFixed(2)} of linked expenses went into parts stock. They are left out of Total Expenses and counted under Parts Used when the parts are used on a work order.</p>
+        {/if}
       {/if}
     </div>
   </div>
@@ -97,8 +110,8 @@
                 <td class="p-2">{e.category?.name || '-'}</td>
                 <td class="p-2">{e.vendor?.name || '-'}</td>
                 <td class="p-2">{e.paymentMethod?.name || '-'}</td>
-                <td class="p-2">${(e.amountCents/100).toFixed(2)}</td>
-                <td class="p-2">{e.notes || '-'}</td>
+                <td class="p-2">${(e.amountCents/100).toFixed(2)}{#if e.stocked} <span class="text-xs text-zinc-500" title="Received into parts stock; charged when used">(stock)</span>{/if}</td>
+                <td class="p-2">{e.notes || e.receiptNotes || '-'}</td>
               </tr>
             {/each}
           </tbody>
@@ -129,8 +142,8 @@
                 <td class="p-2">{inc.channel?.name || '-'}</td>
                 <td class="p-2">{inc.category?.name || '-'}</td>
                 <td class="p-2">${(inc.amountCents/100).toFixed(2)}</td>
-                <td class="p-2">${(((inc.platformFeesCents||0)+(inc.paymentFeesCents||0))/100).toFixed(2)}</td>
-                <td class="p-2">${(((inc.shippingRevenueCents||0)-(inc.shippingCostCents||0))/100).toFixed(2)}</td>
+                <td class="p-2">${(inc.feesCents/100).toFixed(2)}</td>
+                <td class="p-2">${(inc.shippingNetCents/100).toFixed(2)}</td>
                 <td class="p-2">{inc.notes || '-'}</td>
               </tr>
             {/each}
@@ -138,6 +151,35 @@
         </table>
       {:else}
         <p class="text-sm text-zinc-500">No income linked to this device.</p>
+      {/if}
+    </div>
+    <div class="p-4 border rounded overflow-auto md:col-span-2">
+      <h2 class="font-semibold mb-2">Parts Used</h2>
+      {#if data.partsUsed && data.partsUsed.length > 0}
+        <table class="w-full text-sm border divide-y">
+          <thead>
+            <tr class="bg-zinc-50 dark:bg-zinc-800 text-left">
+              <th class="p-2">Work Order</th>
+              <th class="p-2">Part</th>
+              <th class="p-2">Qty</th>
+              <th class="p-2">Unit Cost</th>
+              <th class="p-2">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each data.partsUsed as p}
+              <tr class="divide-x">
+                <td class="p-2"><a class="underline" href={`/work-orders/${p.workOrder.id}`}>{p.workOrder.code}</a></td>
+                <td class="p-2">{p.part?.name || '-'}</td>
+                <td class="p-2">{p.quantity || 0}</td>
+                <td class="p-2">${((p.unitCostCentsSnapshot || 0)/100).toFixed(2)}</td>
+                <td class="p-2">${(p.totalCostCents/100).toFixed(2)}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {:else}
+        <p class="text-sm text-zinc-500">No parts used on work orders for this device.</p>
       {/if}
     </div>
   </div>

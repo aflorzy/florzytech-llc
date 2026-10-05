@@ -107,6 +107,7 @@ enum DeviceStatus {
   SOLD
   SHIPPED
   DELIVERED
+  DONOR // stripped for parts; never sold
 }
 
 enum AllocationMethod {
@@ -219,6 +220,7 @@ model Expense {
   splitGroupId    String?
   allocationMethod AllocationMethod?
   notes       String?
+  receiptNotes String? // split receipts: one note for the whole receipt, repeated on each line
   vendorOrderNumber String?
 
   // Relations

@@ -1,6 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { actions as workOrderActions, load as workOrderLoad } from '../../src/routes/work-orders/[id]/+page.server';
 import { POST as splitPost } from '../../src/routes/expenses/split/+server';
+import { POST as createLinesPost } from '../../src/routes/income/create-lines/+server';
+import { actions as incomeActions } from '../../src/routes/income/+page.server';
 import { disconnectDb, getPrisma, makeFormRequest, makeJsonRequest, resetAndSeedDb } from './helpers';
 
 describe('work order inventory and financial rollup', () => {
@@ -105,6 +107,29 @@ describe('work order inventory and financial rollup', () => {
     expect(data.summary.partsCostCents).toBe(1200);
     expect(data.summary.deviceExpensesCents).toBe(700);
     expect(data.summary.profitCents).toBe(7600);
+  });
+
+  // Issue #8: archiving an income archives the header only; its lines must stop counting too
+  it('leaves an archived Sale Builder income out of work-order revenue and profit', async () => {
+    const prisma = getPrisma();
+    const wo = await prisma.workOrder.create({ data: { code: 'WO-TEST-ARCHIVED' } });
+
+    const sale = (payload: Record<string, unknown>) =>
+      createLinesPost({
+        request: makeJsonRequest({ date: '2026-03-01', type: 'SERVICE', workOrderId: wo.id, ...payload })
+      } as Parameters<typeof createLinesPost>[0]);
+    const kept = await sale({ platformFeesCents: 100, lines: [{ type: 'LABOR', amountCents: 5000 }] });
+    const archived = await sale({ lines: [{ type: 'LABOR', amountCents: 28000 }] });
+    expect(kept.status).toBe(200);
+    const { id } = (await archived.json()) as { id: string };
+
+    const archiveResult = await incomeActions.delete({ request: makeFormRequest({ id }) } as Parameters<typeof incomeActions.delete>[0]);
+    expect(archiveResult).toEqual({ success: true, id });
+
+    const data = (await workOrderLoad({ params: { id: wo.id } } as Parameters<typeof workOrderLoad>[0])) as any;
+    expect(data.summary.income.grossCents).toBe(5000);
+    expect(data.summary.income.netRevenueCents).toBe(4900);
+    expect(data.summary.profitCents).toBe(4900);
   });
 
   it('charges a part bought for a device once: as consumed stock, not also as a device expense', async () => {

@@ -10,6 +10,7 @@
     date: string | Date;
     amountCents: number;
     notes?: string | null;
+    receiptNotes?: string | null;
     category?: Category | null;
     vendor?: Vendor | null;
     paymentMethod?: PaymentMethod | null;
@@ -426,7 +427,7 @@
           {/if}
         </td>
         <td class="p-2 align-top">
-          <div class="truncate" title={e.notes || ''}>{e.notes || '-'}</div>
+          <div class="truncate" title={e.notes || e.receiptNotes || ''}>{e.notes || e.receiptNotes || '-'}</div>
         </td>
         <td class="p-2">
           <div class="flex items-center gap-2">

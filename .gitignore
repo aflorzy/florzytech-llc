@@ -1,5 +1,12 @@
 node_modules
 .env
+.env.test
 .svelte-kit
 build
 .DS_Store
+test-results
+playwright-report
+
+# Anonymized copy of the app database written by `npm run test:snapshot:export`.
+# Remove this line to commit the fixture so CI runs the snapshot suite too.
+tests/fixtures/prod-snapshot.json

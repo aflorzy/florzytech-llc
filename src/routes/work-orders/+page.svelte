@@ -10,7 +10,7 @@
 <h1 class="text-2xl font-semibold mb-4">Work Orders</h1>
 
 <div class="flex items-center gap-2 mb-4">
-  <button class="px-3 py-2 rounded bg-blue-600 text-white" onclick={() => (formOpen = !formOpen)}>
+  <button data-testid="work-orders-toggle-form" class="px-3 py-2 rounded bg-blue-600 text-white" onclick={() => (formOpen = !formOpen)}>
     {formOpen ? 'Close' : 'New Work Order'}
   </button>
 </div>
@@ -38,7 +38,7 @@
       <textarea id="notes" name="notes" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900"></textarea>
     </div>
     <div class="md:col-span-3">
-      <button type="submit" class="px-3 py-2 rounded bg-green-600 text-white">Create Work Order</button>
+      <button data-testid="work-orders-create-work-order" type="submit" class="px-3 py-2 rounded bg-green-600 text-white">Create Work Order</button>
     </div>
   </form>
 {/if}

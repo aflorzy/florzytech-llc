@@ -84,10 +84,14 @@ export const load: PageServerLoad = async ({ params }) => {
   const incomeTotals = incomeLines.length > 0 ? incomeTotalsFromLines : incomeTotalsFromHeads;
   const netRevenueCents = incomeTotals.gross + incomeTotals.shipRev - incomeTotals.platform - incomeTotals.payment - incomeTotals.shipCost;
 
-  // Device-linked expenses: include all non-archived expenses linked to devices in this WO
+  // Device-linked expenses: non-archived expenses linked to devices in this WO.
+  // Expenses received into parts inventory are left out; their cost is charged when the part is consumed.
   const deviceIds = (workOrder?.devices || []).map((od) => od.device.id);
   const deviceExpenses = deviceIds.length > 0
-    ? await prisma.expense.findMany({ where: { archivedAt: null, deviceId: { in: deviceIds } }, select: { amountCents: true } })
+    ? await prisma.expense.findMany({
+        where: { archivedAt: null, deviceId: { in: deviceIds }, partMovements: { none: { type: PartInventoryMovementType.RECEIPT, archivedAt: null } } },
+        select: { amountCents: true }
+      })
     : [];
   const deviceExpensesCents = deviceExpenses.reduce((s, e) => s + (e.amountCents || 0), 0);
 

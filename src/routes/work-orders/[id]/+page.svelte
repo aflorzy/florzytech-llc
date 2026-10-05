@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { enhance } from '$app/forms';
-  import type { ActionResult } from '@sveltejs/kit';
+  import type { ActionResult, SubmitFunction } from '@sveltejs/kit';
   type Customer = { id: string; name: string };
   type Device = { id: string; sku: string; make: string; model: string };
   type Part = { id: string; name: string; averageCostCents?: number | null; unitCostCents?: number | null };
@@ -68,7 +68,6 @@
   const totalCostsCents = $derived((data.summary.partsCostCents || 0) + (data.summary.deviceExpensesCents || 0));
 
   // Progressive enhancement for Items form: intercept result and show errors (no full reload)
-  import type { SubmitFunction } from '$app/forms';
   type ResultFailure = { type: 'failure'; status: number; data?: { error?: string } };
   type ResultError = { type: 'error'; error: Error };
   type ResultSuccess = { type: 'success'; status: number; data?: { success?: boolean; error?: string } };

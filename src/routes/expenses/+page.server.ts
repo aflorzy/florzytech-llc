@@ -229,9 +229,15 @@ export const actions: Actions = {
     const notes = String(form.get('notes') || '') || null;
     const vendorOrderNumber = (String(form.get('vendorOrderNumber') || '').trim() || null);
 
+    // Keep amount = subtotal + tax + shipping + fees; the receipt editor rebuilds amounts from subtotal.
+    const existing = await prisma.expense.findUnique({ where: { id }, select: { taxCents: true, shippingCents: true, otherFeesCents: true } });
+    if (!existing) return { success: false, error: 'Expense not found' };
+    const subtotalCents = amountCents - existing.taxCents - existing.shippingCents - existing.otherFeesCents;
+    if (subtotalCents < 0) return { success: false, error: 'Amount cannot be less than allocated tax, shipping and fees' };
+
     await prisma.expense.update({
       where: { id },
-      data: { amountCents, date, categoryId, vendorId, paymentMethodId, deviceId, notes, vendorOrderNumber }
+      data: { amountCents, subtotalCents, date, categoryId, vendorId, paymentMethodId, deviceId, notes, vendorOrderNumber }
     });
     return { success: true, id };
   },

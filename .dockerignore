@@ -1,0 +1,22 @@
+node_modules
+.svelte-kit
+build
+
+# Env files
+.env
+.env.*
+
+# VCS / CI
+.git
+.gitignore
+.gitea
+
+# Tests and local tooling
+tests
+test-results
+playwright-report
+docs
+.vscode
+.claude
+.DS_Store
+*.md

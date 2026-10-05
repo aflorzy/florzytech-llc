@@ -1,0 +1,154 @@
+name: CI - Test, Build and Push Docker Image
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master # Only PRs targeting master
+
+# Every run truncates and reseeds the shared Neon test branch, so runs must not overlap.
+concurrency:
+  group: florzytech-test-db
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Type-check, build, and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: "true"
+      # Neon *test* branch only. The test env loader overrides DATABASE_URL with this value.
+      DATABASE_URL_TEST: ${{ secrets.DATABASE_URL_TEST }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Require test database secret
+        run: |
+          if [ -z "$DATABASE_URL_TEST" ]; then
+            echo "::error::Repository secret DATABASE_URL_TEST is not set."
+            exit 1
+          fi
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Type-check
+        run: npm run check
+
+      - name: Build
+        run: npm run build
+
+      - name: Apply migrations to test database
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_TEST }}
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Integration tests
+        run: npm run test:integration
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright traces
+        if: failure()
+        # v3: Gitea Actions does not support the v4 artifact backend
+        uses: actions/upload-artifact@v3
+        with:
+          name: playwright-test-results
+          path: test-results
+          retention-days: 7
+
+  docker_build_check:
+    name: Docker image builds
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+
+  build_and_push:
+    name: Build and Push Docker Image
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Extract short SHA
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.REGISTRY_URL }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build and Push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ vars.REGISTRY_URL }}/${{ github.repository }}/tracker:latest
+            ${{ vars.REGISTRY_URL }}/${{ github.repository }}/tracker:${{ steps.vars.outputs.sha_short }}.${{ github.run_number }}
+          cache-from: type=registry,ref=${{ vars.REGISTRY_URL }}/${{ github.repository }}/tracker:buildcache
+          cache-to: type=registry,ref=${{ vars.REGISTRY_URL }}/${{ github.repository }}/tracker:buildcache,mode=max
+
+  deploy_staging:
+    name: Deploy to Staging
+    needs: build_and_push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Staging Deployment
+        env:
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          DEPLOY_SERVER_URL: ${{ secrets.DEPLOY_SERVER_URL }}
+        run: |
+          if [ -z "$DEPLOY_SERVER_URL" ] || [ -z "$WEBHOOK_SECRET" ]; then
+            echo "::warning::DEPLOY_SERVER_URL / WEBHOOK_SECRET not set; image was pushed but staging was not redeployed."
+            exit 0
+          fi
+          BODY="{}"
+          SIGNATURE=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | sed 's/^.* //')
+          curl --fail-with-body -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-Gitea-Signature: $SIGNATURE" \
+            -d "$BODY" \
+            "$DEPLOY_SERVER_URL/webhook/stg"

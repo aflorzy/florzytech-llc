@@ -1,6 +1,8 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { prisma } from '$lib/server/prisma';
 import { allocateProportional, allocateEven, type AllocationMethod } from '$lib/allocation';
+import { effectiveUnitCostCents } from '$lib/parts';
+import { PartInventoryMovementType } from '@prisma/client';
 import { randomUUID } from 'crypto';
 
 function parseLocalDateStr(s: string): Date {
@@ -23,6 +25,10 @@ export const POST: RequestHandler = async ({ request }) => {
     taxCents?: number;
     shippingCents?: number;
     otherFeesCents?: number;
+    // Inventory receipt: set partId or newPartName together with quantity
+    partId?: string | null;
+    newPartName?: string | null;
+    quantity?: number;
   };
   type Payload = {
     date: string;
@@ -89,32 +95,62 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const splitGroupId = randomUUID();
-  await prisma.$transaction(async (tx) => {
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const a = allocated[i];
-      const amountCents = a.subtotalCents + a.taxCents + a.shippingCents + a.otherFeesCents;
-      const notes = (line.notes || receiptNotes) || null;
-      await tx.expense.create({
-        data: {
-          date,
-          amountCents,
-          subtotalCents: a.subtotalCents,
-          taxCents: a.taxCents,
-          shippingCents: a.shippingCents,
-          otherFeesCents: a.otherFeesCents,
-          allocationMethod: method,
-          splitGroupId,
-          categoryId: line.categoryId,
-          vendorId,
-          paymentMethodId,
-          deviceId: line.deviceId || null,
-          notes,
-          vendorOrderNumber: (body.vendorOrderNumber || undefined)
+  try {
+    await prisma.$transaction(async (tx) => {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const a = allocated[i];
+        const amountCents = a.subtotalCents + a.taxCents + a.shippingCents + a.otherFeesCents;
+        const notes = (line.notes || receiptNotes) || null;
+        const created = await tx.expense.create({
+          data: {
+            date,
+            amountCents,
+            subtotalCents: a.subtotalCents,
+            taxCents: a.taxCents,
+            shippingCents: a.shippingCents,
+            otherFeesCents: a.otherFeesCents,
+            allocationMethod: method,
+            splitGroupId,
+            categoryId: line.categoryId,
+            vendorId,
+            paymentMethodId,
+            deviceId: line.deviceId || null,
+            notes,
+            vendorOrderNumber: (body.vendorOrderNumber || undefined)
+          }
+        });
+
+        // Receive the line into parts inventory at its loaded cost (average costing)
+        const qty = Number.isFinite(line.quantity) ? Math.floor(line.quantity || 0) : 0;
+        const newPartName = (line.newPartName || '').trim();
+        if ((line.partId || newPartName) && qty > 0) {
+          const part = line.partId
+            ? await tx.part.findUnique({ where: { id: line.partId }, select: { id: true, quantity: true, averageCostCents: true, unitCostCents: true } })
+            : await tx.part.create({ data: { name: newPartName, quantity: 0, averageCostCents: 0 }, select: { id: true, quantity: true, averageCostCents: true, unitCostCents: true } });
+          if (!part) throw new Response(JSON.stringify({ success: false, error: 'Part not found' }), { status: 400 });
+
+          const newQty = part.quantity + qty;
+          const newAvg = Math.round((effectiveUnitCostCents(part) * part.quantity + amountCents) / newQty);
+          await tx.part.update({ where: { id: part.id }, data: { quantity: newQty, averageCostCents: newAvg } });
+          await tx.partInventoryMovement.create({
+            data: {
+              type: PartInventoryMovementType.RECEIPT,
+              partId: part.id,
+              quantity: qty,
+              unitCostCents: Math.max(0, Math.round(amountCents / qty)),
+              totalCostCents: amountCents,
+              expenseId: created.id,
+              notes
+            }
+          });
         }
-      });
-    }
-  });
+      }
+    });
+  } catch (e) {
+    if (e instanceof Response) return e;
+    throw e;
+  }
 
   return new Response(JSON.stringify({ success: true, splitGroupId }), { status: 200 });
 }

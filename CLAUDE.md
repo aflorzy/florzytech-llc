@@ -17,8 +17,8 @@ npm run prisma:seed                # Seed reference data (categories, channels, 
 
 # Testing
 npm run test:setup                 # Reset and seed the test DB (run before first test run)
-npm run test:integration           # Primary integration tests (vitest, hits real test DB)
-npm run test:integration:secondary # Secondary integration tests (work order financials)
+npm run test:unit                  # Unit tests (pure functions, no DB access)
+npm run test:integration           # All integration tests (vitest, hits real test DB)
 npm run test:e2e                   # E2E tests (Playwright, spins up dev server on port 4173)
 npm run test:all                   # All of the above
 
@@ -33,6 +33,10 @@ npx vitest run --config vitest.config.ts tests/integration/<file>.test.ts
 - Integration tests override `DATABASE_URL` with `DATABASE_URL_TEST` at setup time (`tests/utils/env.mjs`).
 - E2E tests use `DATABASE_URL_TEST` via the Playwright `webServer.env` config.
 - `DATABASE_URL` must include `sslmode=require` (Neon Postgres).
+- The test env loader refuses to run if `DATABASE_URL_TEST` is the same database as `DATABASE_URL` in `.env` (tests truncate every table).
+- CI: `.gitea/workflows/ci.yml` runs check, build, unit, integration, e2e and a Docker build on PRs to `master` (needs the `DATABASE_URL_TEST` repo secret); pushes to `master` also push the image and trigger the staging deploy webhook.
+- Docker: `Dockerfile` builds the adapter-node output; runtime needs `DATABASE_URL` and `ORIGIN`. `GET /healthz` is the health probe. Deployment config lives in the `app-deployments` repo under `apps/florzytech-tracker`.
+- `npm run test:snapshot:export` writes an anonymized read-only copy of the `.env` database to `tests/fixtures/prod-snapshot.json` (gitignored); `prod-snapshot.test.ts` is skipped when the file is absent.
 
 ## Architecture
 
@@ -52,6 +56,7 @@ npx vitest run --config vitest.config.ts tests/integration/<file>.test.ts
 **Utility modules:**
 - `src/lib/sku.ts` — SKU generation (`buildSku`, `brandCode`).
 - `src/lib/allocation.ts` — split-receipt cost allocation across lines (PROPORTIONAL_SUBTOTAL, EVEN, MANUAL).
+- `src/lib/parts.ts` — `effectiveUnitCostCents`: a part's `averageCostCents` once it has been received through a receipt, else the hand-entered `unitCostCents`. Use it wherever stock is valued.
 
 **Testing strategy:**
 - Integration tests (`tests/integration/`) run against a real test DB via vitest. Fully sequential (`fileParallelism: false`). Each test calls `resetAndSeedDb()` via `tests/integration/helpers.ts` in `beforeEach`.

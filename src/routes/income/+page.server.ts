@@ -194,9 +194,10 @@ export const actions: Actions = {
         paymentFeesCents,
         shippingRevenueCents,
         shippingCostCents,
+        taxCollectedCents,
         notes,
-        customerId: String(form.get('customerId') || '') || null,
-        workOrderId: String(form.get('workOrderId') || '') || null
+        customerId,
+        workOrderId
       }
     });
     return { success: true };

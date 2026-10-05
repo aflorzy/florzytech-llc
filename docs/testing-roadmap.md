@@ -78,6 +78,11 @@
 - A receipt against stock with no average cost valued the existing stock at $0 when averaging.
 - Parts consumed (30d) still counted consumption that was reversed by deleting a work order item.
 - Work-order profit charged a part twice when its purchase was linked to the device and the part was also consumed from stock; expenses received into inventory are now left out of device expenses.
+- Work-order revenue still counted the lines of an archived Sale Builder income (#8).
+- Device net ignored Sale Builder sales, which record devices on lines rather than the head (#4, #6); the builder also had no category.
+- Device net charged a part bought into stock as an expense and never charged parts consumed on work orders (#7).
+- Receipt-wide notes were merged into blank line notes instead of being stored on the receipt (#2); added `Expense.receiptNotes`.
+- Added the `DONOR` device status (#5).
 
 ## Known Risks / Blockers
 - CI and local runs share one Neon test branch; overlapping runs will corrupt each other's fixtures. The workflow serializes itself with a `concurrency` group, but do not run tests locally while a CI run is in progress.

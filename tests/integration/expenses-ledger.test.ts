@@ -325,8 +325,8 @@ describe('split receipt effect on the ledger', () => {
     const { splitGroupId } = (await response.json()) as { splitGroupId: string };
 
     const rows = await prisma.expense.findMany({ where: { splitGroupId }, orderBy: { subtotalCents: 'asc' } });
-    expect(rows[0]).toMatchObject({ amountCents: 1105, taxCents: 80, shippingCents: 0, otherFeesCents: 25, notes: 'Own note', allocationMethod: 'MANUAL' });
-    expect(rows[1]).toMatchObject({ amountCents: 2500, taxCents: 0, shippingCents: 500, otherFeesCents: 0, notes: 'Shared receipt note', allocationMethod: 'MANUAL' });
+    expect(rows[0]).toMatchObject({ amountCents: 1105, taxCents: 80, shippingCents: 0, otherFeesCents: 25, notes: 'Own note', receiptNotes: 'Shared receipt note', allocationMethod: 'MANUAL' });
+    expect(rows[1]).toMatchObject({ amountCents: 2500, taxCents: 0, shippingCents: 500, otherFeesCents: 0, notes: null, receiptNotes: 'Shared receipt note', allocationMethod: 'MANUAL' });
 
     const data = await loadDashboard();
     expect(data.totals.moneyOutCents).toBe(15000 + 3605);

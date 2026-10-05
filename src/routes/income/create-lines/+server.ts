@@ -21,6 +21,7 @@ export const POST: RequestHandler = async ({ request }) => {
     date: string; // yyyy-mm-dd
     type: 'SALE' | 'SERVICE' | 'DEPOSIT';
     channelId?: string | null;
+    categoryId?: string | null;
     workOrderId?: string | null;
     customerId?: string | null;
     notes?: string | null;
@@ -59,6 +60,7 @@ export const POST: RequestHandler = async ({ request }) => {
           type: IncomeType[body.type || 'SALE'],
           amountCents: totalLines,
           channelId: body.channelId || null,
+          categoryId: body.categoryId || null,
           workOrderId: body.workOrderId || null,
           customerId: body.customerId || null,
           notes: (body.notes || '').trim() || null,

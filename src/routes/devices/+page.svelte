@@ -29,7 +29,8 @@
     'LISTED',
     'SOLD',
     'SHIPPED',
-    'DELIVERED'
+    'DELIVERED',
+    'DONOR'
   ] as const;
   type DeviceStatusType = typeof deviceStatuses[number];
 </script>

@@ -13,6 +13,7 @@
     notes?: string | null;
     channel?: Channel | null;
     device?: DeviceRef | null;
+    lineDevices: DeviceRef[];
     category?: Category | null;
     customer?: CustomerRef | null;
     workOrder?: WorkOrderRef | null;
@@ -45,6 +46,7 @@
   let builderDate = $state<string>(todayLocal());
   let builderType = $state<'SALE' | 'SERVICE' | 'DEPOSIT'>('SALE');
   let builderChannelId = $state<string | null>(null);
+  let builderCategoryId = $state<string | null>(null);
   let builderCustomerId = $state<string | null>(null);
   let builderWorkOrderId = $state<string | null>(null);
   let builderNotes = $state<string>('');
@@ -74,6 +76,7 @@
       date: builderDate,
       type: builderType,
       channelId: builderChannelId || null,
+      categoryId: builderCategoryId || null,
       customerId: builderCustomerId || null,
       workOrderId: builderWorkOrderId || null,
       notes: builderNotes || null,
@@ -120,7 +123,7 @@
   <button data-testid="income-toggle-form" class="px-3 py-2 rounded bg-blue-600 text-white" onclick={() => (open = !open)}>
     {open ? 'Close' : 'Add Income'}
   </button>
-  <button class="px-3 py-2 rounded bg-purple-700 text-white" onclick={() => { builderOpen = true; if (builderLines.length === 0) addBuilderLine(); }}>
+  <button data-testid="income-open-sale-builder" class="px-3 py-2 rounded bg-purple-700 text-white" onclick={() => { builderOpen = true; if (builderLines.length === 0) addBuilderLine(); }}>
     Sale Builder
   </button>
 </div>
@@ -262,6 +265,15 @@
           </select>
         </div>
         <div>
+          <label class="block text-sm" for="bld-category">Category</label>
+          <select id="bld-category" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={builderCategoryId}>
+            <option value={null}>-</option>
+            {#each data.categories as c}
+              <option value={c.id}>{c.name}</option>
+            {/each}
+          </select>
+        </div>
+        <div>
           <label class="block text-sm" for="bld-customer">Customer</label>
           <select id="bld-customer" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={builderCustomerId}>
             <option value={null}>-</option>
@@ -367,7 +379,7 @@
           </table>
         </div>
         <div class="mt-3 flex items-center justify-end gap-2">
-          <button class="px-3 py-2 rounded bg-green-600 text-white" onclick={submitBuilder}>Save Income</button>
+          <button data-testid="income-save-sale-builder" class="px-3 py-2 rounded bg-green-600 text-white" onclick={submitBuilder}>Save Income</button>
         </div>
       </div>
     </div>
@@ -393,7 +405,13 @@
         <td class="p-2">{new Date(r.date).toLocaleDateString()}</td>
         <td class="p-2">{r.type}</td>
         <td class="p-2">${(r.amountCents/100).toFixed(2)}</td>
-        <td class="p-2">{r.device ? `${r.device.sku} — ${r.device.make} ${r.device.model}` : '-'}</td>
+        <td class="p-2">
+          {#each (r.lineDevices.length > 0 ? r.lineDevices : r.device ? [r.device] : []) as d}
+            <div>{d.sku} — {d.make} {d.model}</div>
+          {:else}
+            -
+          {/each}
+        </td>
         <td class="p-2">{r.category?.name || '-'}</td>
         <td class="p-2">{r.channel?.name || '-'}</td>
         <td class="p-2">{r.notes || '-'}</td>

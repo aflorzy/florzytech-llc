@@ -22,11 +22,18 @@ export const load: PageServerLoad = async ({ url }) => {
   if (to) { const t = new Date(to); t.setHours(23,59,59,999); dateWhere.lte = t; }
   const where = { archivedAt: null, ...(from || to ? { date: dateWhere } : {}) } as const;
 
-  const [income, channels, devices, categories, customers, workOrders, parts] = await Promise.all([
+  const [incomeRows, channels, devices, categories, customers, workOrders, parts] = await Promise.all([
     prisma.income.findMany({
       where,
       orderBy: { date: 'desc' },
-      include: { channel: true, device: true, category: true, customer: true, workOrder: true }
+      include: {
+        channel: true,
+        device: true,
+        category: true,
+        customer: true,
+        workOrder: true,
+        lines: { where: { archivedAt: null, deviceId: { not: null } }, orderBy: { createdAt: 'asc' }, select: { device: true } }
+      }
     }),
     prisma.salesChannel.findMany({ where: { active: true }, orderBy: { name: 'asc' } }),
     prisma.device.findMany({ where: { archivedAt: null }, orderBy: { createdAt: 'desc' }, take: 100 }),
@@ -35,6 +42,11 @@ export const load: PageServerLoad = async ({ url }) => {
     prisma.workOrder.findMany({ where: { archivedAt: null }, orderBy: { createdAt: 'desc' }, take: 100 }),
     prisma.part.findMany({ where: { archivedAt: null }, orderBy: { name: 'asc' }, take: 500 })
   ]);
+  // Sale Builder sales carry their devices on the lines rather than the head
+  const income = incomeRows.map(({ lines, ...row }) => {
+    const lineDevices = [...new Map(lines.flatMap((l) => (l.device ? [[l.device.id, l.device] as const] : []))).values()];
+    return { ...row, lineDevices };
+  });
   return { income, channels, devices, categories, customers, workOrders, parts, filters: { from, to } };
 };
 

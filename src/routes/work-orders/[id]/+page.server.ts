@@ -21,9 +21,10 @@ export const load: PageServerLoad = async ({ params }) => {
       }
     }
   });
-  // Income lines tied to this work order (for revenue and fee allocations)
+  // Income lines tied to this work order (for revenue and fee allocations).
+  // Archiving an income only stamps the head, so the head is checked as well.
   const incomeLines = await prisma.incomeLine.findMany({
-    where: { workOrderId: id, archivedAt: null },
+    where: { workOrderId: id, archivedAt: null, income: { archivedAt: null } },
     select: {
       amountCents: true,
       allocatedPlatformFeesCents: true,

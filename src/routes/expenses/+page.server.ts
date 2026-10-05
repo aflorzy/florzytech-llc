@@ -152,7 +152,7 @@ export const actions: Actions = {
         const line = lines[i];
         const a = allocated[i];
         const amountCents = a.subtotalCents + a.taxCents + a.shippingCents + a.otherFeesCents;
-        const notes = (line.notes || receiptNotes) || null;
+        const notes = (line.notes || '').trim() || null;
 
         const created = await tx.expense.create({
           data: {
@@ -169,6 +169,7 @@ export const actions: Actions = {
             paymentMethodId,
             deviceId: line.deviceId || null,
             notes,
+            receiptNotes,
             vendorOrderNumber
           }
         });
@@ -206,7 +207,7 @@ export const actions: Actions = {
               unitCostCents,
               totalCostCents,
               expenseId: created.id,
-              notes
+              notes: notes || receiptNotes
             }
           });
         }

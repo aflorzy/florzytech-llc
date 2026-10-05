@@ -29,6 +29,7 @@ export const PUT: RequestHandler = async ({ request, params }) => {
     vendorId?: string | null;
     paymentMethodId?: string | null;
     vendorOrderNumber?: string | null;
+    receiptNotes?: string | null;
     allocationMethod: 'PROPORTIONAL_SUBTOTAL' | 'EVEN' | 'MANUAL';
     totals: { totalTaxCents: number; totalShippingCents: number; totalOtherFeesCents: number };
     lines: Line[];
@@ -45,6 +46,7 @@ export const PUT: RequestHandler = async ({ request, params }) => {
   const vendorId = body.vendorId || null;
   const paymentMethodId = body.paymentMethodId || null;
   const vendorOrderNumber = (body.vendorOrderNumber || '').trim() || null;
+  const receiptNotes = (body.receiptNotes || '').trim() || null;
   const lines = Array.isArray(body.lines) ? body.lines : [];
   if (lines.length === 0) return new Response(JSON.stringify({ success: false, error: 'No lines provided' }), { status: 400 });
   for (const l of lines) {
@@ -90,6 +92,7 @@ export const PUT: RequestHandler = async ({ request, params }) => {
             categoryId: l.categoryId,
             deviceId: l.deviceId || null,
             notes: (l.notes || '').trim() || null,
+            receiptNotes,
             amountCents,
             subtotalCents: l.subtotalCents,
             taxCents: l.taxCents,
@@ -109,6 +112,7 @@ export const PUT: RequestHandler = async ({ request, params }) => {
             categoryId: l.categoryId,
             deviceId: l.deviceId || null,
             notes: (l.notes || '').trim() || null,
+            receiptNotes,
             amountCents,
             subtotalCents: l.subtotalCents,
             taxCents: l.taxCents,

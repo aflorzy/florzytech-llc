@@ -38,7 +38,8 @@ export const load: PageServerLoad = async ({ params }) => {
       vendorId: head.vendorId || null,
       paymentMethodId: head.paymentMethodId || null,
       allocationMethod: head.allocationMethod || null,
-      vendorOrderNumber: head.vendorOrderNumber || null
+      vendorOrderNumber: head.vendorOrderNumber || null,
+      receiptNotes: lines.find((l) => l.receiptNotes)?.receiptNotes || null
     },
     totals,
     categories,

@@ -1,4 +1,8 @@
 <script lang="ts">
+  import PageHeader from '$lib/components/PageHeader.svelte';
+  import BalanceCard from '$lib/components/BalanceCard.svelte';
+  import StatCard from '$lib/components/StatCard.svelte';
+  import Badge from '$lib/components/Badge.svelte';
   type Totals = {
     incomeGrossCents: number;
     moneyInNetCents: number;
@@ -22,11 +26,6 @@
   type WorkOrderCounts = { open: number };
   let { data } = $props<{ data: { totals: Totals; last30: Last30; devices: DevicesCounts; workOrders: WorkOrderCounts } }>();
 
-  const fmtUSD = (cents: number) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(
-      (cents || 0) / 100
-    );
-  const signClass = (cents: number) => (cents >= 0 ? 'text-green-600' : 'text-red-600');
 
   // Quick date helpers for drill-down links
   const fmtDate = (d: Date) => {
@@ -42,124 +41,58 @@
   const from30Str = fmtDate(from30);
 </script>
 
-<h1 class="text-3xl font-bold mb-6">Dashboard</h1>
+<PageHeader title="Dashboard" />
 
-<section class="grid gap-4 md:grid-cols-4 mb-6">
-  <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-    <h2 class="text-zinc-500 text-sm mb-1">Spending Power</h2>
-    <div data-testid="dashboard-spending-power" class={`text-3xl font-extrabold ${signClass(data.totals.spendingPowerCents)}`}>{fmtUSD(data.totals.spendingPowerCents)}</div>
-    <p class="text-xs text-zinc-500 mt-2">Money In (Net) - Money Out</p>
-  </div>
-  <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-    <h2 class="text-zinc-500 text-sm mb-1">Money In (Net)</h2>
-    <div data-testid="dashboard-money-in-net" class="text-3xl font-extrabold text-green-600">{fmtUSD(data.totals.moneyInNetCents)}</div>
-    <p class="text-xs text-zinc-500 mt-2">Sales/Service - fees - shipping costs + shipping revenue</p>
-    <div class="mt-2 text-xs">
-      <a class="text-blue-600 hover:underline" href="/income">View all transactions</a>
-      <span class="mx-1 text-zinc-400">·</span>
-      <a class="text-blue-600 hover:underline" href={`/income?from=${from30Str}&to=${toStr}`}>View last 30d</a>
-    </div>
-  </div>
-  <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-    <h2 class="text-zinc-500 text-sm mb-1">Money Out</h2>
-    <div data-testid="dashboard-money-out" class="text-3xl font-extrabold text-red-600">{fmtUSD(data.totals.moneyOutCents)}</div>
-    <p class="text-xs text-zinc-500 mt-2">Expenses</p>
-    <div class="mt-2 text-xs">
-      <a class="text-blue-600 hover:underline" href="/expenses">View all transactions</a>
-      <span class="mx-1 text-zinc-400">·</span>
-      <a class="text-blue-600 hover:underline" href={`/expenses?from=${from30Str}&to=${toStr}`}>View last 30d</a>
-    </div>
-  </div>
-  <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-    <h2 class="text-zinc-500 text-sm mb-1">Gross Income</h2>
-    <div class="text-3xl font-extrabold">{fmtUSD(data.totals.incomeGrossCents)}</div>
-    <p class="text-xs text-zinc-500 mt-2">Before fees and shipping costs</p>
-    <div class="mt-2 text-xs">
-      <a class="text-blue-600 hover:underline" href="/income">View all transactions</a>
-      <span class="mx-1 text-zinc-400">·</span>
-      <a class="text-blue-600 hover:underline" href={`/income?from=${from30Str}&to=${toStr}`}>View last 30d</a>
-    </div>
+<section class="mb-10">
+  <BalanceCard
+    label="Spending power"
+    hint="Money in (net) minus money out, all time."
+    balanceCents={data.totals.spendingPowerCents}
+    inCents={data.totals.moneyInNetCents}
+    outCents={data.totals.moneyOutCents}
+    inHref="/income"
+    outHref="/expenses"
+    testidPrefix="dashboard"
+  />
+  <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+    <StatCard size="sm" label="Gross income" cents={data.totals.incomeGrossCents} hint="Before fees and shipping costs" />
+    <StatCard size="sm" label="Fees (platform + payment)" cents={data.totals.feesCents} />
+    <StatCard size="sm" label="Taxes collected" cents={data.totals.taxesCollectedCents} />
+    <StatCard size="sm" label="Expenses" cents={data.totals.expensesCents} tone="loss" />
+    <StatCard size="sm" label="Parts inventory value" cents={data.totals.partsInventoryValueCents} />
   </div>
 </section>
 
-<section class="grid gap-4 md:grid-cols-4 mb-8">
-  <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-    <h3 class="text-zinc-500 text-sm mb-1">Fees (platform + payment)</h3>
-    <div class="text-2xl font-bold">{fmtUSD(data.totals.feesCents)}</div>
-  </div>
-  <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-    <h3 class="text-zinc-500 text-sm mb-1">Taxes Collected</h3>
-    <div class="text-2xl font-bold">{fmtUSD(data.totals.taxesCollectedCents)}</div>
-  </div>
-  <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-    <h3 class="text-zinc-500 text-sm mb-1">Expenses</h3>
-    <div class="text-2xl font-bold text-red-600">{fmtUSD(data.totals.expensesCents)}</div>
-  </div>
-  <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-    <h3 class="text-zinc-500 text-sm mb-1">Parts Inventory Value</h3>
-    <div class="text-2xl font-bold">{fmtUSD(data.totals.partsInventoryValueCents)}</div>
-  </div>
-</section>
-
-<section class="mb-8">
-  <h2 class="text-xl font-semibold mb-3">Last 30 days</h2>
-  <div class="grid gap-4 md:grid-cols-3 mb-4">
-    <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-      <h3 class="text-zinc-500 text-sm mb-1">Spending Power (30d)</h3>
-      <div class={`text-2xl font-extrabold ${signClass(data.last30.spendingPowerCents)}`}>{fmtUSD(data.last30.spendingPowerCents)}</div>
-    </div>
-    <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-      <h3 class="text-zinc-500 text-sm mb-1">Money In (Net, 30d)</h3>
-      <div class="text-2xl font-extrabold text-green-600">{fmtUSD(data.last30.moneyInNetCents)}</div>
-    </div>
-    <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-      <h3 class="text-zinc-500 text-sm mb-1">Money Out (30d)</h3>
-      <div class="text-2xl font-extrabold text-red-600">{fmtUSD(data.last30.moneyOutCents)}</div>
-    </div>
-  </div>
-  <div class="grid gap-4 md:grid-cols-4">
-    <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-      <h3 class="text-zinc-500 text-sm mb-1">Fees (30d)</h3>
-      <div class="text-xl font-bold">{fmtUSD(data.last30.feesCents)}</div>
-    </div>
-    <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-      <h3 class="text-zinc-500 text-sm mb-1">Taxes Collected (30d)</h3>
-      <div class="text-xl font-bold">{fmtUSD(data.last30.taxesCollectedCents)}</div>
-    </div>
-    <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-      <h3 class="text-zinc-500 text-sm mb-1">Expenses (30d)</h3>
-      <div class="text-xl font-bold text-red-600">{fmtUSD(data.last30.expensesCents)}</div>
-    </div>
-    <div class="border rounded p-4 bg-white dark:bg-zinc-900">
-      <h3 class="text-zinc-500 text-sm mb-1">Parts Consumed (30d)</h3>
-      <div class="text-xl font-bold">{fmtUSD(data.last30.partsConsumedCents)}</div>
-    </div>
+<section class="mb-10">
+  <h2 class="mb-3 text-xl font-semibold">Last 30 days</h2>
+  <BalanceCard
+    size="md"
+    label="Spending power (30d)"
+    balanceCents={data.last30.spendingPowerCents}
+    inCents={data.last30.moneyInNetCents}
+    outCents={data.last30.moneyOutCents}
+    inHref={`/income?from=${from30Str}&to=${toStr}`}
+    outHref={`/expenses?from=${from30Str}&to=${toStr}`}
+  />
+  <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <StatCard size="sm" label="Fees (30d)" cents={data.last30.feesCents} />
+    <StatCard size="sm" label="Taxes collected (30d)" cents={data.last30.taxesCollectedCents} />
+    <StatCard size="sm" label="Expenses (30d)" cents={data.last30.expensesCents} tone="loss" />
+    <StatCard size="sm" label="Parts consumed (30d)" cents={data.last30.partsConsumedCents} />
   </div>
 </section>
 
 <section>
-  <h2 class="text-xl font-semibold mb-3">Inventory & Work Orders</h2>
+  <h2 class="mb-3 text-xl font-semibold">Inventory and work orders</h2>
   <div class="grid gap-4 sm:grid-cols-3">
-    <div class="border rounded p-4 bg-white dark:bg-zinc-900 flex items-center justify-between">
-      <div>
-        <h3 class="text-zinc-500 text-sm">Active Devices</h3>
-        <div class="text-3xl font-extrabold">{data.devices.activeDevices}</div>
-      </div>
-      <span class="inline-flex items-center justify-center px-3 py-1 rounded bg-green-600 text-white text-sm">Active</span>
-    </div>
-    <div class="border rounded p-4 bg-white dark:bg-zinc-900 flex items-center justify-between">
-      <div>
-        <h3 class="text-zinc-500 text-sm">Archived Devices</h3>
-        <div class="text-3xl font-extrabold">{data.devices.archivedDevices}</div>
-      </div>
-      <span class="inline-flex items-center justify-center px-3 py-1 rounded bg-zinc-600 text-white text-sm">Archived</span>
-    </div>
-    <div class="border rounded p-4 bg-white dark:bg-zinc-900 flex items-center justify-between">
-      <div>
-        <h3 class="text-zinc-500 text-sm">Open Work Orders</h3>
-        <div class="text-3xl font-extrabold">{data.workOrders.open}</div>
-      </div>
-      <span class="inline-flex items-center justify-center px-3 py-1 rounded bg-blue-600 text-white text-sm">Open</span>
-    </div>
+    <StatCard label="Active devices" value={data.devices.activeDevices}>
+      <Badge tone="gain">Active</Badge>
+    </StatCard>
+    <StatCard label="Archived devices" value={data.devices.archivedDevices}>
+      <Badge>Archived</Badge>
+    </StatCard>
+    <StatCard label="Open work orders" value={data.workOrders.open}>
+      <Badge tone="accent">Open</Badge>
+    </StatCard>
   </div>
 </section>

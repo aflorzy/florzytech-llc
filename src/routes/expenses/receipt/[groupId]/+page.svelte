@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeader from '$lib/components/PageHeader.svelte';
   import { previewAllocation, type AllocationMethod } from '$lib/allocation';
   type Category = { id: string; name: string };
   type Vendor = { id: string; name: string };
@@ -123,16 +124,17 @@
   }
 </script>
 
-<h1 class="text-2xl font-semibold mb-4">Edit Receipt</h1>
+<PageHeader title="Edit Receipt" back={{ href: '/expenses', label: 'Expenses' }} />
 
-<div class="grid gap-3 md:grid-cols-4 mb-4">
+<div class="card mb-4 space-y-4">
+<div class="grid gap-x-4 gap-y-3 md:grid-cols-4">
   <div>
-    <label class="block text-sm" for="date">Date</label>
-    <input id="date" type="date" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={date} />
+    <label class="label" for="date">Date</label>
+    <input id="date" type="date" class="input" bind:value={date} />
   </div>
   <div>
-    <label class="block text-sm" for="vendor">Vendor</label>
-    <select id="vendor" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={vendorId}>
+    <label class="label" for="vendor">Vendor</label>
+    <select id="vendor" class="input" bind:value={vendorId}>
       <option value={null}>-</option>
       {#each data.vendors as v}
         <option value={v.id}>{v.name}</option>
@@ -140,8 +142,8 @@
     </select>
   </div>
   <div>
-    <label class="block text-sm" for="pm">Payment Method</label>
-    <select id="pm" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={paymentMethodId}>
+    <label class="label" for="pm">Payment Method</label>
+    <select id="pm" class="input" bind:value={paymentMethodId}>
       <option value={null}>-</option>
       {#each data.paymentMethods as m}
         <option value={m.id}>{m.name}</option>
@@ -149,12 +151,12 @@
     </select>
   </div>
   <div>
-    <label class="block text-sm" for="vendor-order">Vendor Order #</label>
-    <input id="vendor-order" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={vendorOrderNumber} />
+    <label class="label" for="vendor-order">Vendor Order #</label>
+    <input id="vendor-order" class="input" bind:value={vendorOrderNumber} />
   </div>
   <div>
-    <label class="block text-sm" for="method">Allocation Method</label>
-    <select id="method" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={allocationMethod} onchange={() => reallocateFromState()}>
+    <label class="label" for="method">Allocation Method</label>
+    <select id="method" class="input" bind:value={allocationMethod} onchange={() => reallocateFromState()}>
       <option value="PROPORTIONAL_SUBTOTAL">Proportional by Subtotal</option>
       <option value="EVEN">Even Split</option>
       <option value="MANUAL">Manual</option>
@@ -162,87 +164,89 @@
   </div>
 </div>
 
-<div class="grid gap-3 md:grid-cols-4 mb-4">
+<div class="grid gap-x-4 gap-y-3 md:grid-cols-4">
   <div>
-    <label class="block text-sm" for="tax">Invoice Tax (USD)</label>
-    <input id="tax" type="number" step="0.01" min="0" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={centsToUsd(totals.totalTaxCents)} onchange={(e) => { totals = { ...totals, totalTaxCents: usdToCents((e.target as HTMLInputElement).value) }; reallocateFromState(); }} />
+    <label class="label" for="tax">Invoice Tax (USD)</label>
+    <input id="tax" type="number" step="0.01" min="0" class="input" value={centsToUsd(totals.totalTaxCents)} onchange={(e) => { totals = { ...totals, totalTaxCents: usdToCents((e.target as HTMLInputElement).value) }; reallocateFromState(); }} />
   </div>
   <div>
-    <label class="block text-sm" for="ship">Invoice Shipping (USD)</label>
-    <input id="ship" type="number" step="0.01" min="0" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={centsToUsd(totals.totalShippingCents)} onchange={(e) => { totals = { ...totals, totalShippingCents: usdToCents((e.target as HTMLInputElement).value) }; reallocateFromState(); }} />
+    <label class="label" for="ship">Invoice Shipping (USD)</label>
+    <input id="ship" type="number" step="0.01" min="0" class="input" value={centsToUsd(totals.totalShippingCents)} onchange={(e) => { totals = { ...totals, totalShippingCents: usdToCents((e.target as HTMLInputElement).value) }; reallocateFromState(); }} />
   </div>
   <div>
-    <label class="block text-sm" for="fees">Other Fees (USD)</label>
-    <input id="fees" type="number" step="0.01" min="0" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" value={centsToUsd(totals.totalOtherFeesCents)} onchange={(e) => { totals = { ...totals, totalOtherFeesCents: usdToCents((e.target as HTMLInputElement).value) }; reallocateFromState(); }} />
+    <label class="label" for="fees">Other Fees (USD)</label>
+    <input id="fees" type="number" step="0.01" min="0" class="input" value={centsToUsd(totals.totalOtherFeesCents)} onchange={(e) => { totals = { ...totals, totalOtherFeesCents: usdToCents((e.target as HTMLInputElement).value) }; reallocateFromState(); }} />
   </div>
   <div class="flex items-end">
-    <div class="w-full px-3 py-2 border rounded bg-zinc-50 dark:bg-zinc-800">
-      <div class="text-xs text-zinc-500">Grand Total</div>
-      <div class="text-lg font-semibold">${centsToUsd(grandTotalCents())}</div>
+    <div class="total-box">
+      <div class="text-xs text-muted">Grand Total</div>
+      <div class="figure text-xl">${centsToUsd(grandTotalCents())}</div>
     </div>
   </div>
 </div>
 
-<div class="mb-4">
-  <label class="block text-sm" for="receipt-notes">Receipt Notes</label>
-  <input id="receipt-notes" class="w-full px-3 py-2 border rounded bg-white dark:bg-zinc-900" bind:value={receiptNotes} />
+<div>
+  <label class="label" for="receipt-notes">Receipt Notes</label>
+  <input id="receipt-notes" class="input" bind:value={receiptNotes} />
   <label class="mt-2 inline-flex items-center gap-2 text-sm">
-    <input type="checkbox" bind:checked={applyNotesToAll} />
+    <input type="checkbox" class="checkbox" bind:checked={applyNotesToAll} />
     <span>Also copy receipt notes into every line's notes on save</span>
   </label>
-  <p class="text-xs text-zinc-500 mt-1">Receipt notes are saved with the receipt. If checked, they also overwrite each line's own notes.</p>
+  <p class="hint">Receipt notes are saved with the receipt. If checked, they also overwrite each line's own notes.</p>
 </div>
 
-<div class="overflow-auto border rounded">
-  <table class="w-full text-sm border divide-y table-fixed">
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
     <thead>
-      <tr class="bg-zinc-50 dark:bg-zinc-800 text-left">
-        <th class="p-2">Category</th>
-        <th class="p-2">Device</th>
-        <th class="p-2">Notes</th>
-        <th class="p-2">Subtotal (USD)</th>
-        <th class="p-2">Tax (USD)</th>
-        <th class="p-2">Shipping (USD)</th>
-        <th class="p-2">Fees (USD)</th>
-        <th class="p-2">Loaded Total</th>
-        <th class="p-2">Actions</th>
+      <tr>
+        <th>Category</th>
+        <th>Device</th>
+        <th>Notes</th>
+        <th>Subtotal (USD)</th>
+        <th>Tax (USD)</th>
+        <th>Shipping (USD)</th>
+        <th>Fees (USD)</th>
+        <th>Loaded Total</th>
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody>
       {#each lines as ln, i}
-        <tr class="divide-x">
-          <td class="p-2">
-            <select class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" bind:value={ln.categoryId}>
+        <tr>
+          <td>
+            <select class="input input-sm" bind:value={ln.categoryId}>
               {#each data.categories as c}
                 <option value={c.id}>{c.name}</option>
               {/each}
             </select>
           </td>
-          <td class="p-2">
-            <select class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" bind:value={ln.deviceId}>
+          <td>
+            <select class="input input-sm" bind:value={ln.deviceId}>
               <option value={null}>-</option>
               {#each data.devices as d}
                 <option value={d.id}>{d.sku} — {d.make} {d.model}</option>
               {/each}
             </select>
           </td>
-          <td class="p-2"><input class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" bind:value={ln.notes} /></td>
-          <td class="p-2"><input class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" value={centsToUsd(ln.subtotalCents)} onchange={(e) => { ln.subtotalCents = usdToCents((e.target as HTMLInputElement).value); lines = [...lines]; reallocateFromState(); }} /></td>
-          <td class="p-2"><input class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" value={centsToUsd(ln.taxCents)} disabled={allocationMethod !== 'MANUAL'} onchange={(e) => { ln.taxCents = usdToCents((e.target as HTMLInputElement).value); lines = [...lines]; }} /></td>
-          <td class="p-2"><input class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" value={centsToUsd(ln.shippingCents)} disabled={allocationMethod !== 'MANUAL'} onchange={(e) => { ln.shippingCents = usdToCents((e.target as HTMLInputElement).value); lines = [...lines]; }} /></td>
-          <td class="p-2"><input class="w-full px-2 py-1 border rounded bg-white dark:bg-zinc-900" value={centsToUsd(ln.otherFeesCents)} disabled={allocationMethod !== 'MANUAL'} onchange={(e) => { ln.otherFeesCents = usdToCents((e.target as HTMLInputElement).value); lines = [...lines]; }} /></td>
-          <td class="p-2">{allocationMethod === 'MANUAL' ? centsToUsd(ln.subtotalCents + ln.taxCents + ln.shippingCents + ln.otherFeesCents) : (() => { const p = previewAllocation(allocationMethod, lines.map(l => ({ subtotalCents: l.subtotalCents })), totals); return centsToUsd(p[i]?.loadedTotalCents || 0); })()}</td>
-          <td class="p-2"><button class="px-2 py-1 rounded bg-red-600 text-white" onclick={() => removeLine(i)}>Remove</button></td>
+          <td><input class="input input-sm" bind:value={ln.notes} /></td>
+          <td><input class="input input-sm" value={centsToUsd(ln.subtotalCents)} onchange={(e) => { ln.subtotalCents = usdToCents((e.target as HTMLInputElement).value); lines = [...lines]; reallocateFromState(); }} /></td>
+          <td><input class="input input-sm" value={centsToUsd(ln.taxCents)} disabled={allocationMethod !== 'MANUAL'} onchange={(e) => { ln.taxCents = usdToCents((e.target as HTMLInputElement).value); lines = [...lines]; }} /></td>
+          <td><input class="input input-sm" value={centsToUsd(ln.shippingCents)} disabled={allocationMethod !== 'MANUAL'} onchange={(e) => { ln.shippingCents = usdToCents((e.target as HTMLInputElement).value); lines = [...lines]; }} /></td>
+          <td><input class="input input-sm" value={centsToUsd(ln.otherFeesCents)} disabled={allocationMethod !== 'MANUAL'} onchange={(e) => { ln.otherFeesCents = usdToCents((e.target as HTMLInputElement).value); lines = [...lines]; }} /></td>
+          <td>{allocationMethod === 'MANUAL' ? centsToUsd(ln.subtotalCents + ln.taxCents + ln.shippingCents + ln.otherFeesCents) : (() => { const p = previewAllocation(allocationMethod, lines.map(l => ({ subtotalCents: l.subtotalCents })), totals); return centsToUsd(p[i]?.loadedTotalCents || 0); })()}</td>
+          <td><button class="btn btn-danger btn-sm" onclick={() => removeLine(i)}>Remove</button></td>
         </tr>
       {/each}
     </tbody>
   </table>
 </div>
 
-<div class="mt-3 flex items-center justify-between">
-  <button class="px-2 py-1 rounded bg-blue-600 text-white" onclick={() => addLine()}>Add Line</button>
+<div class="mt-4 flex flex-wrap items-center justify-between gap-2">
+  <button class="btn btn-secondary btn-sm" onclick={() => addLine()}>Add Line</button>
   <div class="flex items-center gap-2">
-    <a href="/expenses" class="px-3 py-2 rounded bg-zinc-300 dark:bg-zinc-700">Cancel</a>
-    <button class="px-3 py-2 rounded bg-green-600 text-white" onclick={save}>Save Changes</button>
+    <a href="/expenses" class="btn btn-secondary">Cancel</a>
+    <button class="btn btn-primary" onclick={save}>Save Changes</button>
   </div>
 </div>

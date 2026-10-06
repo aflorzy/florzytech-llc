@@ -1,8 +1,206 @@
+@import '@fontsource/barlow/latin-400.css';
+@import '@fontsource/barlow/latin-500.css';
+@import '@fontsource/barlow/latin-600.css';
+@import '@fontsource/barlow-semi-condensed/latin-500.css';
+@import '@fontsource/barlow-semi-condensed/latin-600.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Design tokens. Colours are RGB channel triplets consumed by tailwind.config.ts
+ * (bg-surface, text-muted, border-line, ...). Change a value here and it changes everywhere.
+ *
+ * The palette comes from the repair bench: blue-slate ESD mat for surfaces,
+ * Kapton-tape amber for the one primary action, green/red reserved for money in/out.
+ */
 :root {
   color-scheme: light dark;
+
+  --c-bg: 236 241 245;
+  --c-surface: 255 255 255;
+  --c-raised: 244 247 250;
+  --c-line: 214 222 230;
+  --c-line-strong: 184 196 207;
+  --c-ink: 20 33 44;
+  --c-muted: 84 102 119;
+  --c-faint: 126 142 157;
+  --c-accent: 240 174 48;
+  --c-accent-hover: 228 160 28;
+  --c-accent-ink: 138 88 0;
+  --c-on-accent: 36 22 0;
+  --c-gain: 19 122 76;
+  --c-loss: 194 54 47;
+  --c-link: 27 94 184;
+
+  --radius-control: 0.625rem;
+  --radius-card: 1rem;
+  --radius-modal: 1.25rem;
+
+  --shadow-card: 0 1px 2px rgb(20 33 44 / 0.05), 0 6px 20px -12px rgb(20 33 44 / 0.18);
+  --shadow-pop: 0 24px 60px -20px rgb(20 33 44 / 0.45);
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-bg: 15 24 33;
+    --c-surface: 22 34 46;
+    --c-raised: 30 45 60;
+    --c-line: 43 61 79;
+    --c-line-strong: 62 84 106;
+    --c-ink: 230 237 243;
+    --c-muted: 148 166 183;
+    --c-faint: 104 124 143;
+    --c-accent: 242 179 61;
+    --c-accent-hover: 247 196 98;
+    --c-accent-ink: 242 179 61;
+    --c-on-accent: 36 22 0;
+    --c-gain: 88 201 146;
+    --c-loss: 242 122 114;
+    --c-link: 122 182 245;
+
+    --shadow-card: 0 1px 0 rgb(255 255 255 / 0.03) inset;
+    --shadow-pop: 0 24px 60px -16px rgb(0 0 0 / 0.7);
+  }
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: rgb(var(--c-line));
+  }
+
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-accent));
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Buttons: one primary per view; everything else is secondary or ghost. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-control px-4 py-2 text-sm font-medium
+      whitespace-nowrap transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1 text-[0.8125rem];
+  }
+  .btn-primary {
+    @apply bg-accent text-on-accent font-semibold hover:bg-accent-hover;
+  }
+  .btn-secondary {
+    @apply bg-raised text-ink border border-line hover:border-line-strong;
+  }
+  .btn-ghost {
+    @apply text-muted hover:text-ink hover:bg-raised;
+  }
+  .btn-danger {
+    @apply text-loss bg-loss/10 hover:bg-loss/20;
+  }
+
+  /* Square icon-only actions in table rows. Always pair with aria-label + title. */
+  .icon-btn {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-control text-muted transition-colors
+      hover:bg-raised hover:text-ink;
+  }
+  .icon-btn-danger {
+    @apply hover:bg-loss/15 hover:text-loss;
+  }
+
+  /* Form controls */
+  .label {
+    @apply mb-1 block text-sm font-medium text-ink;
+  }
+  .input {
+    @apply block w-full rounded-control border border-line bg-surface px-3 py-2 text-sm text-ink
+      transition-colors placeholder:text-faint hover:border-line-strong
+      focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30
+      disabled:cursor-not-allowed disabled:bg-raised disabled:opacity-50;
+  }
+  .input-sm {
+    @apply px-2 py-1.5;
+  }
+  textarea.input {
+    @apply min-h-[4.5rem];
+  }
+  .hint {
+    @apply mt-1 text-xs leading-snug text-muted;
+  }
+  .checkbox {
+    @apply h-4 w-4 accent-[rgb(var(--c-accent))];
+  }
+
+  /* Surfaces */
+  .card {
+    @apply rounded-card border border-line bg-surface p-5 shadow-card;
+  }
+  .card-title {
+    @apply mb-3 text-lg font-semibold;
+  }
+  .form-panel {
+    @apply card mb-6 grid gap-x-4 gap-y-3;
+  }
+  .total-box {
+    @apply w-full rounded-control bg-raised px-3 py-2;
+  }
+  .alert-error {
+    @apply rounded-control border border-loss/30 bg-loss/10 px-3 py-2 text-sm text-loss;
+  }
+
+  /* Tables: wrap every <table class="data-table"> in .table-wrap for the rounded, scrollable frame. */
+  .table-wrap {
+    @apply overflow-x-auto rounded-card border border-line bg-surface shadow-card;
+  }
+  .card .table-wrap,
+  .modal-panel .table-wrap {
+    @apply rounded-control bg-transparent shadow-none;
+  }
+  .data-table {
+    @apply w-full text-left text-sm tabular-nums;
+  }
+  .data-table th {
+    @apply whitespace-nowrap border-b border-line bg-raised px-3 py-2.5 text-[0.8125rem] font-medium text-muted;
+  }
+  .data-table td {
+    @apply border-b border-line px-3 py-2.5 align-middle;
+  }
+  .data-table tbody tr:last-child > td {
+    @apply border-b-0;
+  }
+  .data-table tbody tr:not(.edit-row):hover > td {
+    @apply bg-raised/60;
+  }
+  .data-table .edit-row > td {
+    @apply bg-raised/50 p-5;
+  }
+  .data-table .empty-cell {
+    @apply py-10 text-center text-muted;
+  }
+
+  /* Text helpers */
+  .link {
+    @apply text-link underline-offset-2 hover:underline;
+  }
+  .figure {
+    @apply font-display font-semibold tabular-nums tracking-tight;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

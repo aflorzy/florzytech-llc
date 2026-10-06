@@ -1,4 +1,8 @@
 <script lang="ts">
+  import PageHeader from '$lib/components/PageHeader.svelte';
+  import SkuTag from '$lib/components/SkuTag.svelte';
+  import StatusBadge from '$lib/components/StatusBadge.svelte';
+  import { formatUsd, toneOf, toneClass } from '$lib/format';
   type Device = {
     id: string;
     sku: string;
@@ -53,133 +57,143 @@
 </script>
 
 {#if !data.device}
-  <p>Device not found.</p>
+  <PageHeader title="Device not found" back={{ href: '/devices', label: 'Devices' }} />
 {:else}
-  <h1 class="text-2xl font-semibold mb-2">{data.device.make} {data.device.model}</h1>
-  <p class="text-sm mb-4">SKU: <strong>{data.device.sku}</strong></p>
+  <PageHeader title={`${data.device.make} ${data.device.model}`} back={{ href: '/devices', label: 'Devices' }}>
+    {#snippet meta()}
+      <SkuTag code={data.device.sku} />
+      <StatusBadge status={data.device.status} />
+    {/snippet}
+  </PageHeader>
 
   <div class="grid md:grid-cols-2 gap-4 mb-6">
-    <div class="p-4 border rounded">
-      <h2 class="font-semibold mb-2">Details</h2>
-      <ul class="text-sm space-y-1">
-        <li><strong>Serial/IMEI:</strong> {data.device.serial || '-'}</li>
-        <li><strong>Source:</strong> {data.device.source || '-'}</li>
-        <li><strong>Condition:</strong> {data.device.condition || '-'}</li>
-        <li><strong>Status:</strong> {data.device.status}</li>
-        <li><strong>Notes:</strong> {data.device.notes || '-'}</li>
-      </ul>
+    <div class="card">
+      <h2 class="card-title">Details</h2>
+      <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-2 text-sm">
+        <dt class="text-muted">Serial/IMEI</dt><dd>{data.device.serial || '-'}</dd>
+        <dt class="text-muted">Source</dt><dd>{data.device.source || '-'}</dd>
+        <dt class="text-muted">Condition</dt><dd>{data.device.condition || '-'}</dd>
+        <dt class="text-muted">Notes</dt><dd>{data.device.notes || '-'}</dd>
+      </dl>
     </div>
-    <div class="p-4 border rounded">
-      <h2 class="font-semibold mb-2">Summary</h2>
+    <div class="card">
+      <h2 class="card-title">Summary</h2>
       {#if data.summary}
-        <ul class="text-sm space-y-1">
-          <li><strong>Total Income:</strong> ${(data.summary.income/100).toFixed(2)}</li>
-          <li><strong>Total Expenses:</strong> ${(data.summary.expenses/100).toFixed(2)}</li>
-          <li><strong>Parts Used:</strong> ${(data.summary.partsConsumed/100).toFixed(2)}</li>
-          <li><strong>Fees:</strong> ${(data.summary.fees/100).toFixed(2)}</li>
-          <li><strong>Shipping Net:</strong> ${(data.summary.shippingNet/100).toFixed(2)}</li>
-          <li><strong>Tax Collected:</strong> ${(data.summary.taxCollected/100).toFixed(2)}</li>
-          <li class="font-semibold"><strong>Net Profit:</strong> ${(data.summary.netProfitCents/100).toFixed(2)}</li>
-        </ul>
+        <dl class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-6 gap-y-2 text-sm tabular-nums">
+          <dt class="text-muted">Total Income</dt><dd class="text-right">{formatUsd(data.summary.income)}</dd>
+          <dt class="text-muted">Total Expenses</dt><dd class="text-right">{formatUsd(data.summary.expenses)}</dd>
+          <dt class="text-muted">Parts Used</dt><dd class="text-right">{formatUsd(data.summary.partsConsumed)}</dd>
+          <dt class="text-muted">Fees</dt><dd class="text-right">{formatUsd(data.summary.fees)}</dd>
+          <dt class="text-muted">Shipping Net</dt><dd class="text-right">{formatUsd(data.summary.shippingNet)}</dd>
+          <dt class="text-muted">Tax Collected</dt><dd class="text-right">{formatUsd(data.summary.taxCollected)}</dd>
+          <dt class="mt-1 border-t border-line pt-3 font-medium">Net Profit</dt>
+          <dd class="figure mt-1 border-t border-line pt-2 text-right text-xl {toneClass[toneOf(data.summary.netProfitCents)]}">{formatUsd(data.summary.netProfitCents)}</dd>
+        </dl>
         {#if data.summary.stockedExpenses > 0}
-          <p class="text-xs text-zinc-500 mt-2">${(data.summary.stockedExpenses/100).toFixed(2)} of linked expenses went into parts stock. They are left out of Total Expenses and counted under Parts Used when the parts are used on a work order.</p>
+          <p class="hint mt-3">{formatUsd(data.summary.stockedExpenses)} of linked expenses went into parts stock. They are left out of Total Expenses and counted under Parts Used when the parts are used on a work order.</p>
         {/if}
       {/if}
     </div>
   </div>
 
-  <div class="grid md:grid-cols-2 gap-4">
-    <div class="p-4 border rounded overflow-auto">
-      <h2 class="font-semibold mb-2">Expenses</h2>
+  <div class="grid xl:grid-cols-2 gap-4">
+    <div class="card min-w-0">
+      <h2 class="card-title">Expenses</h2>
       {#if data.expenses && data.expenses.length > 0}
-        <table class="w-full text-sm border divide-y">
+        <div class="table-wrap">
+        <table class="data-table">
           <thead>
-            <tr class="bg-zinc-50 dark:bg-zinc-800 text-left">
-              <th class="p-2">Date</th>
-              <th class="p-2">Category</th>
-              <th class="p-2">Vendor</th>
-              <th class="p-2">Payment</th>
-              <th class="p-2">Amount</th>
-              <th class="p-2">Notes</th>
+            <tr>
+              <th>Date</th>
+              <th>Category</th>
+              <th>Vendor</th>
+              <th>Payment</th>
+              <th>Amount</th>
+              <th>Notes</th>
             </tr>
           </thead>
           <tbody>
             {#each data.expenses as e}
-              <tr class="divide-x">
-                <td class="p-2">{new Date(e.date).toLocaleDateString()}</td>
-                <td class="p-2">{e.category?.name || '-'}</td>
-                <td class="p-2">{e.vendor?.name || '-'}</td>
-                <td class="p-2">{e.paymentMethod?.name || '-'}</td>
-                <td class="p-2">${(e.amountCents/100).toFixed(2)}{#if e.stocked} <span class="text-xs text-zinc-500" title="Received into parts stock; charged when used">(stock)</span>{/if}</td>
-                <td class="p-2">{e.notes || e.receiptNotes || '-'}</td>
+              <tr>
+                <td>{new Date(e.date).toLocaleDateString()}</td>
+                <td>{e.category?.name || '-'}</td>
+                <td>{e.vendor?.name || '-'}</td>
+                <td>{e.paymentMethod?.name || '-'}</td>
+                <td>{formatUsd(e.amountCents)}{#if e.stocked} <span class="text-xs text-muted" title="Received into parts stock; charged when used">(stock)</span>{/if}</td>
+                <td>{e.notes || e.receiptNotes || '-'}</td>
               </tr>
             {/each}
           </tbody>
         </table>
+        </div>
       {:else}
-        <p class="text-sm text-zinc-500">No expenses linked to this device.</p>
+        <p class="text-sm text-muted">No expenses linked to this device.</p>
       {/if}
     </div>
-    <div class="p-4 border rounded overflow-auto">
-      <h2 class="font-semibold mb-2">Income</h2>
+    <div class="card min-w-0">
+      <h2 class="card-title">Income</h2>
       {#if data.incomes && data.incomes.length > 0}
-        <table class="w-full text-sm border divide-y">
+        <div class="table-wrap">
+        <table class="data-table">
           <thead>
-            <tr class="bg-zinc-50 dark:bg-zinc-800 text-left">
-              <th class="p-2">Date</th>
-              <th class="p-2">Channel</th>
-              <th class="p-2">Category</th>
-              <th class="p-2">Amount</th>
-              <th class="p-2">Fees</th>
-              <th class="p-2">Shipping Net</th>
-              <th class="p-2">Notes</th>
+            <tr>
+              <th>Date</th>
+              <th>Channel</th>
+              <th>Category</th>
+              <th>Amount</th>
+              <th>Fees</th>
+              <th>Shipping Net</th>
+              <th>Notes</th>
             </tr>
           </thead>
           <tbody>
             {#each data.incomes as inc}
-              <tr class="divide-x">
-                <td class="p-2">{new Date(inc.date).toLocaleDateString()}</td>
-                <td class="p-2">{inc.channel?.name || '-'}</td>
-                <td class="p-2">{inc.category?.name || '-'}</td>
-                <td class="p-2">${(inc.amountCents/100).toFixed(2)}</td>
-                <td class="p-2">${(inc.feesCents/100).toFixed(2)}</td>
-                <td class="p-2">${(inc.shippingNetCents/100).toFixed(2)}</td>
-                <td class="p-2">{inc.notes || '-'}</td>
+              <tr>
+                <td>{new Date(inc.date).toLocaleDateString()}</td>
+                <td>{inc.channel?.name || '-'}</td>
+                <td>{inc.category?.name || '-'}</td>
+                <td>{formatUsd(inc.amountCents)}</td>
+                <td>{formatUsd(inc.feesCents)}</td>
+                <td>{formatUsd(inc.shippingNetCents)}</td>
+                <td>{inc.notes || '-'}</td>
               </tr>
             {/each}
           </tbody>
         </table>
+        </div>
       {:else}
-        <p class="text-sm text-zinc-500">No income linked to this device.</p>
+        <p class="text-sm text-muted">No income linked to this device.</p>
       {/if}
     </div>
-    <div class="p-4 border rounded overflow-auto md:col-span-2">
-      <h2 class="font-semibold mb-2">Parts Used</h2>
+    <div class="card min-w-0 xl:col-span-2">
+      <h2 class="card-title">Parts Used</h2>
       {#if data.partsUsed && data.partsUsed.length > 0}
-        <table class="w-full text-sm border divide-y">
+        <div class="table-wrap">
+        <table class="data-table">
           <thead>
-            <tr class="bg-zinc-50 dark:bg-zinc-800 text-left">
-              <th class="p-2">Work Order</th>
-              <th class="p-2">Part</th>
-              <th class="p-2">Qty</th>
-              <th class="p-2">Unit Cost</th>
-              <th class="p-2">Total</th>
+            <tr>
+              <th>Work Order</th>
+              <th>Part</th>
+              <th>Qty</th>
+              <th>Unit Cost</th>
+              <th>Total</th>
             </tr>
           </thead>
           <tbody>
             {#each data.partsUsed as p}
-              <tr class="divide-x">
-                <td class="p-2"><a class="underline" href={`/work-orders/${p.workOrder.id}`}>{p.workOrder.code}</a></td>
-                <td class="p-2">{p.part?.name || '-'}</td>
-                <td class="p-2">{p.quantity || 0}</td>
-                <td class="p-2">${((p.unitCostCentsSnapshot || 0)/100).toFixed(2)}</td>
-                <td class="p-2">${(p.totalCostCents/100).toFixed(2)}</td>
+              <tr>
+                <td><SkuTag code={p.workOrder.code} href={`/work-orders/${p.workOrder.id}`} /></td>
+                <td>{p.part?.name || '-'}</td>
+                <td>{p.quantity || 0}</td>
+                <td>{formatUsd(p.unitCostCentsSnapshot || 0)}</td>
+                <td>{formatUsd(p.totalCostCents)}</td>
               </tr>
             {/each}
           </tbody>
         </table>
+        </div>
       {:else}
-        <p class="text-sm text-zinc-500">No parts used on work orders for this device.</p>
+        <p class="text-sm text-muted">No parts used on work orders for this device.</p>
       {/if}
     </div>
   </div>

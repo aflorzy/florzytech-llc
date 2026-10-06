@@ -25,6 +25,8 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@fontsource/barlow": "^5.3.0",
+    "@fontsource/barlow-semi-condensed": "^5.3.0",
     "@playwright/test": "^1.54.2",
     "@sveltejs/adapter-node": "^5.3.2",
     "@sveltejs/kit": "^2.43.2",

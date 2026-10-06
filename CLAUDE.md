@@ -59,6 +59,13 @@ npx vitest run --config vitest.config.ts tests/integration/<file>.test.ts
 - `src/lib/parts.ts` — `effectiveUnitCostCents`: a part's `averageCostCents` once it has been received through a receipt, else the hand-entered `unitCostCents`. Use it wherever stock is valued.
 - `src/lib/server/device-financials.ts` — per-device income, expenses, parts used and net, shared by the Devices list and detail pages. Sale Builder sales are counted through their `IncomeLine`s (the head is skipped when it has device lines); expenses received into parts stock are left out and charged as parts used when consumed on a work order.
 
+**Design system:** all styling goes through tokens and shared pieces; do not hand-write colours, radii or one-off button/input classes in pages.
+- Tokens: `src/app.css` (`--c-*` colour channels for light and dark, `--radius-*`, `--shadow-*`), exposed in `tailwind.config.ts` as `bg-surface`, `bg-raised`, `text-ink`, `text-muted`, `border-line`, `bg-accent`, `text-gain`, `text-loss`, `rounded-control`, `rounded-card`, etc. Never use raw palette classes (`zinc-*`, `blue-600`, ...).
+- Component classes (`src/app.css`, `@layer components`): `.btn` + `.btn-primary|secondary|ghost|danger` (+ `.btn-sm`), `.icon-btn` (+ `.icon-btn-danger`), `.label`, `.input` (+ `.input-sm`), `.hint`, `.card`, `.card-title`, `.form-panel`, `.table-wrap` > `table.data-table` (`.edit-row`, `.empty-cell`), `.link`, `.figure`, `.total-box`, `.alert-error`. One `.btn-primary` (amber) per view.
+- Svelte components (`src/lib/components/`): `PageHeader` (title, `back`, `meta`/`actions` snippets), `StatCard`, `BalanceCard` (balance plus money in/out bars), `Modal`, `Badge`, `StatusBadge` (enum to tone + label), `SkuTag`, `DateRangeFilter`, `Icon` (add new paths there, no inline SVG).
+- `src/lib/format.ts`: `formatUsd(cents)`, `toneOf`/`toneClass` for signed amounts, `humanizeEnum`.
+- Fonts are self-hosted via `@fontsource` (Barlow for text, Barlow Semi Condensed for headings and figures).
+
 **Testing strategy:**
 - Integration tests (`tests/integration/`) run against a real test DB via vitest. Fully sequential (`fileParallelism: false`). Each test calls `resetAndSeedDb()` via `tests/integration/helpers.ts` in `beforeEach`.
 - E2E tests (`tests/e2e/`) use Playwright against the dev server; global setup in `tests/e2e/global-setup.ts`.

@@ -63,6 +63,7 @@ npx vitest run --config vitest.config.ts tests/integration/<file>.test.ts
 - Tokens: `src/app.css` (`--c-*` colour channels for light and dark, `--radius-*`, `--shadow-*`), exposed in `tailwind.config.ts` as `bg-surface`, `bg-raised`, `text-ink`, `text-muted`, `border-line`, `bg-accent`, `text-gain`, `text-loss`, `rounded-control`, `rounded-card`, etc. Never use raw palette classes (`zinc-*`, `blue-600`, ...).
 - Component classes (`src/app.css`, `@layer components`): `.btn` + `.btn-primary|secondary|ghost|danger` (+ `.btn-sm`), `.icon-btn` (+ `.icon-btn-danger`), `.label`, `.input` (+ `.input-sm`), `.hint`, `.card`, `.card-title`, `.form-panel`, `.table-wrap` > `table.data-table` (`.edit-row`, `.empty-cell`), `.link`, `.figure`, `.total-box`, `.alert-error`. One `.btn-primary` (amber) per view.
 - Svelte components (`src/lib/components/`): `PageHeader` (title, `back`, `meta`/`actions` snippets), `StatCard`, `BalanceCard` (balance plus money in/out bars), `Modal`, `Badge`, `StatusBadge` (enum to tone + label), `SkuTag`, `DateRangeFilter`, `Icon` (add new paths there, no inline SVG).
+- Logo: `static/favicon.svg` (the laptop mark on a dark tile) is both the tab icon and the sidebar mark.
 - `src/lib/format.ts`: `formatUsd(cents)`, `toneOf`/`toneClass` for signed amounts, `humanizeEnum`.
 - Fonts are self-hosted via `@fontsource` (Barlow for text, Barlow Semi Condensed for headings and figures).
 

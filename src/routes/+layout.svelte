@@ -38,7 +38,7 @@
   <aside class="border-b border-line bg-surface md:sticky md:top-0 md:h-dvh md:overflow-y-auto md:border-b-0 md:border-r">
     <div class="flex h-14 items-center justify-between px-4 md:h-16">
       <a href="/" class="flex items-center gap-2.5 font-display text-lg font-semibold tracking-tight">
-        <span class="grid h-8 w-8 place-items-center rounded-control bg-accent text-sm font-semibold text-on-accent" aria-hidden="true">FZ</span>
+        <img src="/favicon.svg" alt="" class="h-8 w-8" />
         FlorzyTech Tracker
       </a>
       <button

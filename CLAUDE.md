@@ -50,7 +50,7 @@ npx vitest run --config vitest.config.ts tests/integration/<file>.test.ts
 - `Device` — inventory item with a SKU (`FZ-YYYYMM-BBB-NNN`), status enum, and purchase price.
 - `Expense` — purchase/cost entry; supports split receipts via `splitGroupId` + `AllocationMethod`.
 - `Income` — sale/service entry with platform/payment/shipping/tax fee fields; has `IncomeLine[]` for multi-item sales.
-- `WorkOrder` — repair job linking a `Customer`, one or more `Device`s (`WorkOrderDevice`), and line items (`WorkOrderItem` of type PART/LABOR/NOTE).
+- `WorkOrder` — repair job linking a `Customer`, one or more `Device`s (`WorkOrderDevice`), and line items (`WorkOrderItem` of type PART/LABOR/NOTE). A device can be on several work orders; `WorkOrderDevice.includeDeviceCost` marks the one work order its expenses count against.
 - `Part` — inventory with average costing via `PartInventoryMovement` (RECEIPT/CONSUME/ADJUSTMENT).
 
 **Utility modules:**

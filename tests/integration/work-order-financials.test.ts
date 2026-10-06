@@ -168,4 +168,72 @@ describe('work order inventory and financial rollup', () => {
     expect(data.summary.deviceExpensesCents).toBe(700);
     expect(data.summary.profitCents).toBe(10000 - 2000 - 700);
   });
+
+  // Issue #17: a purchased device sold on one work order, then back as a customer repair on another
+  describe('device on several work orders', () => {
+    const load = async (id: string) => (await workOrderLoad({ params: { id } } as Parameters<typeof workOrderLoad>[0])) as any;
+    const addDevice = (workOrderId: string, deviceId: string) =>
+      workOrderActions.add_device({
+        request: makeFormRequest({ deviceId, role: 'PRIMARY' }),
+        params: { id: workOrderId }
+      } as Parameters<typeof workOrderActions.add_device>[0]);
+
+    async function soldThenReturned() {
+      const prisma = getPrisma();
+      const device = await prisma.device.create({ data: { sku: 'FZ-TEST-REPEAT', make: 'Sony', model: 'PS5', purchasePriceCents: 15000 } });
+      const category = await prisma.category.findFirstOrThrow({ where: { kind: 'expense' }, select: { id: true } });
+      await prisma.expense.create({ data: { date: new Date('2026-01-05'), amountCents: 15000, subtotalCents: 15000, categoryId: category.id, deviceId: device.id } });
+
+      const sale = await prisma.workOrder.create({ data: { code: 'WO-TEST-SALE', targetAction: 'SELL' } });
+      await addDevice(sale.id, device.id);
+      await prisma.income.create({ data: { date: new Date('2026-01-20'), type: 'SALE', amountCents: 40000, workOrderId: sale.id } });
+
+      const repair = await prisma.workOrder.create({ data: { code: 'WO-TEST-REPAIR' } });
+      await addDevice(repair.id, device.id);
+      await prisma.income.create({ data: { date: new Date('2026-10-01'), type: 'SERVICE', amountCents: 8000, workOrderId: repair.id } });
+      return { sale, repair };
+    }
+
+    it('charges the purchase cost to the first work order only', async () => {
+      const { sale, repair } = await soldThenReturned();
+
+      const saleData = await load(sale.id);
+      expect(saleData.summary.deviceExpensesCents).toBe(15000);
+      expect(saleData.summary.profitCents).toBe(25000);
+      expect(saleData.workOrder.devices[0]).toMatchObject({ includeDeviceCost: true, expensesCents: 15000, costCountedOn: null });
+
+      const repairData = await load(repair.id);
+      expect(repairData.summary.deviceExpensesCents).toBe(0);
+      expect(repairData.summary.profitCents).toBe(8000);
+      expect(repairData.workOrder.devices[0]).toMatchObject({ includeDeviceCost: false, costCountedOn: { id: sale.id, code: 'WO-TEST-SALE' } });
+    });
+
+    it('moves the cost when it is counted on another work order', async () => {
+      const { sale, repair } = await soldThenReturned();
+      const link = (await load(repair.id)).workOrder.devices[0];
+
+      const result = await workOrderActions.set_device_cost({
+        request: makeFormRequest({ id: link.id, include: 'true' }),
+        params: { id: repair.id }
+      } as Parameters<typeof workOrderActions.set_device_cost>[0]);
+      expect(result).toEqual({ success: true });
+
+      expect((await load(repair.id)).summary.deviceExpensesCents).toBe(15000);
+      const saleData = await load(sale.id);
+      expect(saleData.summary.deviceExpensesCents).toBe(0);
+      expect(saleData.workOrder.devices[0].costCountedOn).toMatchObject({ id: repair.id });
+    });
+
+    it('counts the cost on a new work order once the earlier one is archived', async () => {
+      const prisma = getPrisma();
+      const { sale, repair } = await soldThenReturned();
+      const device = await prisma.device.findFirstOrThrow({ where: { sku: 'FZ-TEST-REPEAT' } });
+      await prisma.workOrder.update({ where: { id: sale.id }, data: { archivedAt: new Date() } });
+      await prisma.workOrder.update({ where: { id: repair.id }, data: { archivedAt: new Date() } });
+
+      const redo = await prisma.workOrder.create({ data: { code: 'WO-TEST-REDO' } });
+      await addDevice(redo.id, device.id);
+      expect((await load(redo.id)).summary.deviceExpensesCents).toBe(15000);
+    });
+  });
 });

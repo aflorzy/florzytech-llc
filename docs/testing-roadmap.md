@@ -4,7 +4,7 @@
 - Primary objective: protect Spending Power correctness and critical business workflows.
 - Test strategy priority: integration and e2e first, focused unit tests for pure functions only.
 - Invariant: **No logical behavior changes until critical tests are passing (Gate 2 green).**
-- Canonical income path: **Add Income**. Sale Builder is non-critical.
+- Only income path: **Add Income**. The Sale Builder was retired in #14.
 - Test DB: dedicated Neon database via `DATABASE_URL_TEST`.
 
 ## Gate Checklist
@@ -45,7 +45,9 @@
 
 ### Gate 5: Ledger Coverage + CI Gate
 - [x] Dashboard metrics contract (full totals/last30 shape, tax, fees, parts value, parts consumed, device and work-order counts).
-- [x] Income create/update/delete/load and Sale Builder (`create-lines`) integration tests.
+- [x] Income create/update/delete/load integration tests.
+- [x] Single income path (#14): every combination of work order and device, fees, several payments, invoicing, edits, archives, $0 and negative amounts, date boundaries, and parts stock never moving (`income-single-path.test.ts`).
+- [x] Retire Sale Builder migration: one test per shape found in production plus the guard (`sale-builder-migration.test.ts`), and a row-by-row before/after check on the production snapshot (`prod-snapshot.test.ts`).
 - [x] Expense create/update/delete/load and split-receipt ledger-effect integration tests.
 - [x] Guard against `DATABASE_URL_TEST` pointing at the `.env` app database.
 - [x] Gitea Actions workflow (`.gitea/workflows/ci.yml`).
@@ -84,9 +86,12 @@
 - Receipt-wide notes were merged into blank line notes instead of being stored on the receipt (#2); added `Expense.receiptNotes`.
 - Added the `DONOR` device status (#5).
 - A donor's cost could only be charged whole to a single work order, or not at all; parts harvested from a donor now carry their share of its cost into stock and on to the work orders that use them (#11).
+- The Sale Builder kept a second breakdown of a sale that could deduct a part twice and hide plain incomes from a work order's revenue; it was removed and its incomes folded into ordinary ones (#14).
+- Editing an income blanked its fees, shipping and tax, because the edit form did not show the stored values (#14).
+- The Income date filter left out incomes on the last day of the range in time zones behind UTC (#14). The Expenses filter still parses its dates the same way.
 
 ## Known Risks / Blockers
-- CI and local runs share one Neon test branch; overlapping runs will corrupt each other's fixtures. The workflow serializes itself with a `concurrency` group, but do not run tests locally while a CI run is in progress.
+- CI has its own test database (since 9 October 2026), so local runs against `DATABASE_URL_TEST` in `.env.test` no longer collide with a CI run. The workflow still serializes itself with a `concurrency` group.
 - `DATABASE_URL_TEST` must remain isolated from production data.
 - E2E selectors should continue using stable IDs/labels to avoid UI-structure brittleness.
 - Any schema changes must preserve deterministic reset/seed behavior.

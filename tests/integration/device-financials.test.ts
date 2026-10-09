@@ -1,11 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { actions as deviceActions, load as devicesLoad } from '../../src/routes/devices/+page.server';
 import { actions as deviceDetailActions, load as deviceDetailLoad } from '../../src/routes/devices/[id]/+page.server';
-import { load as incomeLoad } from '../../src/routes/income/+page.server';
+import { actions as incomeActions } from '../../src/routes/income/+page.server';
 import { actions as workOrderActions, load as workOrderLoad } from '../../src/routes/work-orders/[id]/+page.server';
-import { POST as createLinesPost } from '../../src/routes/income/create-lines/+server';
 import { POST as splitPost } from '../../src/routes/expenses/split/+server';
-import { disconnectDb, getPrisma, makeFormRequest, makeJsonRequest, makeLoadEvent, resetAndSeedDb } from './helpers';
+import { disconnectDb, getPrisma, makeFormRequest, makeJsonRequest, resetAndSeedDb } from './helpers';
 
 function todayStr() {
   const d = new Date();
@@ -20,8 +19,9 @@ async function loadDevice(id: string) {
   return (await deviceDetailLoad({ params: { id } } as Parameters<typeof deviceDetailLoad>[0])) as any;
 }
 
-async function postSale(payload: unknown) {
-  return createLinesPost({ request: makeJsonRequest(payload) } as Parameters<typeof createLinesPost>[0]);
+async function addIncome(form: Record<string, string>) {
+  const result = await incomeActions.create({ request: makeFormRequest({ date: todayStr(), type: 'SALE', ...form }) } as Parameters<typeof incomeActions.create>[0]);
+  expect(result).toEqual({ success: true });
 }
 
 async function netFor(id: string): Promise<number> {
@@ -38,30 +38,15 @@ describe('device financial rollups', () => {
     await disconnectDb();
   });
 
-  // Issues #4 and #6: a Sale Builder sale records its devices on the lines, not the header
-  describe('Sale Builder sales', () => {
-    it('credits each device with its own line and allocated fees when one sale has several devices', async () => {
+  // Issue #14: one income holds one device, so a sale of several devices is one income each
+  describe('a sale of several devices', () => {
+    it('credits each device with its own income, fees and shipping', async () => {
       const prisma = getPrisma();
       const a = await prisma.device.create({ data: { sku: 'FZ-TEST-A', make: 'Sony', model: 'PS5' } });
       const b = await prisma.device.create({ data: { sku: 'FZ-TEST-B', make: 'Sony', model: 'PS4' } });
 
-      const response = await postSale({
-        date: todayStr(),
-        type: 'SALE',
-        platformFeesCents: 1000,
-        paymentFeesCents: 400,
-        shippingRevenueCents: 2000,
-        shippingCostCents: 1200,
-        taxCollectedCents: 800,
-        lines: [
-          { type: 'DEVICE', deviceId: a.id, amountCents: 30000 },
-          { type: 'DEVICE', deviceId: b.id, amountCents: 10000 }
-        ]
-      });
-      expect(response.status).toBe(200);
-
-      const sold = await prisma.device.findMany({ where: { id: { in: [a.id, b.id] } }, select: { status: true } });
-      expect(sold.map((d) => d.status)).toEqual(['SOLD', 'SOLD']);
+      await addIncome({ amount: '300.00', deviceId: a.id, platformFees: '7.50', paymentFees: '3.00', shippingRevenue: '15.00', shippingCost: '9.00', taxCollected: '6.00' });
+      await addIncome({ amount: '100.00', deviceId: b.id, platformFees: '2.50', paymentFees: '1.00', shippingRevenue: '5.00', shippingCost: '3.00', taxCollected: '2.00' });
 
       // A: 30000 - 750 - 300 + 1500 - 900; B: 10000 - 250 - 100 + 500 - 300
       expect(await netFor(a.id)).toBe(29550);
@@ -75,61 +60,22 @@ describe('device financial rollups', () => {
       expect(detailB.incomes).toHaveLength(1);
     });
 
+    it('recording income never changes a device status', async () => {
+      const prisma = getPrisma();
+      const a = await prisma.device.create({ data: { sku: 'FZ-TEST-A', make: 'Sony', model: 'PS5', status: 'LISTED' } });
+      await addIncome({ amount: '300.00', deviceId: a.id });
+      expect((await prisma.device.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('LISTED');
+    });
+
     it('drops the sale from the device once the income is archived', async () => {
       const prisma = getPrisma();
       const a = await prisma.device.create({ data: { sku: 'FZ-TEST-A', make: 'Sony', model: 'PS5' } });
-      const response = await postSale({ date: todayStr(), type: 'SALE', lines: [{ type: 'DEVICE', deviceId: a.id, amountCents: 30000 }] });
-      const { id } = (await response.json()) as { id: string };
+      await addIncome({ amount: '300.00', deviceId: a.id });
       expect(await netFor(a.id)).toBe(30000);
 
-      await prisma.income.update({ where: { id }, data: { archivedAt: new Date() } });
+      await prisma.income.updateMany({ where: { deviceId: a.id }, data: { archivedAt: new Date() } });
       expect(await netFor(a.id)).toBe(0);
       expect((await loadDevice(a.id)).incomes).toHaveLength(0);
-    });
-
-    it('does not count a sale twice when the header is later given one of its line devices', async () => {
-      const prisma = getPrisma();
-      const a = await prisma.device.create({ data: { sku: 'FZ-TEST-A', make: 'Sony', model: 'PS5' } });
-      const b = await prisma.device.create({ data: { sku: 'FZ-TEST-B', make: 'Sony', model: 'PS4' } });
-      const response = await postSale({
-        date: todayStr(),
-        type: 'SALE',
-        lines: [
-          { type: 'DEVICE', deviceId: a.id, amountCents: 30000 },
-          { type: 'DEVICE', deviceId: b.id, amountCents: 10000 }
-        ]
-      });
-      const { id } = (await response.json()) as { id: string };
-      await prisma.income.update({ where: { id }, data: { deviceId: a.id } });
-
-      expect(await netFor(a.id)).toBe(30000);
-      expect(await netFor(b.id)).toBe(10000);
-      expect((await loadDevice(a.id)).incomes).toHaveLength(1);
-    });
-
-    it('stores the category and lists the line devices on the Income page', async () => {
-      const prisma = getPrisma();
-      const a = await prisma.device.create({ data: { sku: 'FZ-TEST-A', make: 'Sony', model: 'PS5' } });
-      const b = await prisma.device.create({ data: { sku: 'FZ-TEST-B', make: 'Sony', model: 'PS4' } });
-      const category = await prisma.category.findFirstOrThrow({ where: { kind: 'income', name: 'Device Sale' }, select: { id: true } });
-
-      const response = await postSale({
-        date: todayStr(),
-        type: 'SALE',
-        categoryId: category.id,
-        notes: 'Builder sale',
-        lines: [
-          { type: 'DEVICE', deviceId: a.id, amountCents: 30000 },
-          { type: 'DEVICE', deviceId: b.id, amountCents: 10000 },
-          { type: 'OTHER', amountCents: 500, description: 'Cable' }
-        ]
-      });
-      expect(response.status).toBe(200);
-
-      const data = (await incomeLoad(makeLoadEvent<Parameters<typeof incomeLoad>[0]>('http://localhost/income'))) as any;
-      const row = data.income.find((r: { notes: string | null }) => r.notes === 'Builder sale');
-      expect(row.category?.name).toBe('Device Sale');
-      expect(row.lineDevices.map((d: { sku: string }) => d.sku).sort()).toEqual(['FZ-TEST-A', 'FZ-TEST-B']);
     });
   });
 

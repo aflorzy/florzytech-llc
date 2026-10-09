@@ -10,7 +10,6 @@
   type Channel = { id: string; name: string };
   type Category = { id: string; name: string };
   type WorkOrderRef = { id: string; code: string };
-  type PartRef = { id: string; name: string };
   type CustomerRef = { id: string; name: string };
   type IncomeRow = {
     id: string;
@@ -19,14 +18,18 @@
     amountCents: number;
     notes?: string | null;
     channel?: Channel | null;
+    platformFeesCents: number;
+    paymentFeesCents: number;
+    shippingRevenueCents: number;
+    shippingCostCents: number;
+    taxCollectedCents: number;
     device?: DeviceRef | null;
-    lineDevices: DeviceRef[];
     category?: Category | null;
     customer?: CustomerRef | null;
     workOrder?: WorkOrderRef | null;
   };
   type Filters = { from: string | null; to: string | null };
-  let { data } = $props<{ data: { income: IncomeRow[]; channels: Channel[]; devices: DeviceRef[]; categories: Category[]; customers: CustomerRef[]; workOrders: WorkOrderRef[]; parts: PartRef[]; filters: Filters } }>();
+  let { data } = $props<{ data: { income: IncomeRow[]; channels: Channel[]; devices: DeviceRef[]; categories: Category[]; customers: CustomerRef[]; workOrders: WorkOrderRef[]; filters: Filters } }>();
 
   function todayLocal(): string {
     const d = new Date();
@@ -39,87 +42,21 @@
   let open = $state(false);
   let editingId = $state<string | null>(null);
 
-  // Stage C: Income Builder modal state
-  let builderOpen = $state(false);
-  type BuilderLine = {
-    type: 'DEVICE' | 'PART' | 'LABOR' | 'OTHER';
-    amountCents: number;
-    description?: string;
-    deviceId?: string | null;
-    partId?: string | null;
-    quantity?: number | null;
-    workOrderId?: string | null;
-  };
-  let builderDate = $state<string>(todayLocal());
-  let builderType = $state<'SALE' | 'SERVICE' | 'DEPOSIT'>('SALE');
-  let builderChannelId = $state<string | null>(null);
-  let builderCategoryId = $state<string | null>(null);
-  let builderCustomerId = $state<string | null>(null);
-  let builderWorkOrderId = $state<string | null>(null);
-  let builderNotes = $state<string>('');
-  let builderPlatformFeesCents = $state<number>(0);
-  let builderPaymentFeesCents = $state<number>(0);
-  let builderShippingRevenueCents = $state<number>(0);
-  let builderShippingCostCents = $state<number>(0);
-  let builderTaxCollectedCents = $state<number>(0);
-  let builderLines = $state<BuilderLine[]>([]);
-
-  // builderDate is initialized above
-
-  function usdToCents(v: string): number { const n = parseFloat(v); return Math.round((n || 0) * 100); }
-  function usdNumToCents(n: number): number { return Math.round((n || 0) * 100); }
-  function centsToUsd(n: number): string { return ((n || 0) / 100).toFixed(2); }
-  function addBuilderLine() {
-    builderLines = [...builderLines, { type: 'OTHER', amountCents: 0, description: '' }];
-  }
-  function removeBuilderLine(idx: number) {
-    builderLines = builderLines.filter((_, i) => i !== idx);
-  }
-  function builderTotalCents(): number {
-    return builderLines.reduce((s, l) => s + Math.floor(l.amountCents || 0), 0);
-  }
-  async function submitBuilder() {
-    const payload = {
-      date: builderDate,
-      type: builderType,
-      channelId: builderChannelId || null,
-      categoryId: builderCategoryId || null,
-      customerId: builderCustomerId || null,
-      workOrderId: builderWorkOrderId || null,
-      notes: builderNotes || null,
-      platformFeesCents: usdNumToCents(builderPlatformFeesCents),
-      paymentFeesCents: usdNumToCents(builderPaymentFeesCents),
-      shippingRevenueCents: usdNumToCents(builderShippingRevenueCents),
-      shippingCostCents: usdNumToCents(builderShippingCostCents),
-      taxCollectedCents: usdNumToCents(builderTaxCollectedCents),
-      lines: builderLines
-    };
-    const res = await fetch('/income/create-lines', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok || !j.success) {
-      alert(j.error || 'Failed to save income with lines');
-      return;
-    }
-    builderOpen = false;
-    location.reload();
-  }
+  // Money inputs show a blank instead of 0.00 so an untouched fee stays visibly empty
+  const usd = (cents: number) => (cents ? (cents / 100).toFixed(2) : '');
 </script>
 
 <PageHeader title="Income">
   {#snippet actions()}
-    <button data-testid="income-open-sale-builder" class="btn btn-secondary" title="Record one sale made of several devices, parts or labor lines" onclick={() => { builderOpen = true; if (builderLines.length === 0) addBuilderLine(); }}>
-      Sale Builder
-    </button>
-    <button data-testid="income-toggle-form" class="btn {open ? 'btn-secondary' : 'btn-primary'}" onclick={() => (open = !open)}>
-      {open ? 'Close' : 'Add Income'}
-    </button>
+    <button data-testid="income-toggle-form" class="btn btn-primary" onclick={() => (open = true)}>Add Income</button>
   {/snippet}
 </PageHeader>
 
 <DateRangeFilter from={data.filters.from} to={data.filters.to} clearHref="/income" />
 
 {#if open}
-  <form method="post" action="?/create" class="form-panel md:grid-cols-3">
+  <Modal title="Add Income" size="lg" onclose={() => (open = false)}>
+  <form id="income-form" method="post" action="?/create" class="grid gap-x-4 gap-y-3 md:grid-cols-3">
     <div>
       <label class="label" for="date">Date</label>
       <input id="date" name="date" type="date" class="input" value={todayLocal()} />
@@ -135,8 +72,8 @@
     </div>
     <div>
       <label class="label" for="amount">Amount (USD)</label>
-      <input id="amount" name="amount" type="number" step="0.01" min="0" class="input" required />
-      <p class="hint">Item or service price before fees and tax. Do not include shipping or tax here — use the fields below.</p>
+      <input id="amount" name="amount" type="number" step="0.01" class="input" required />
+      <p class="hint">What was paid for the item or service, before fees and tax. Shipping and tax go in the fields below. Use a negative amount for a refund you paid out.</p>
     </div>
     <div>
       <label class="label" for="deviceId">Device</label>
@@ -146,7 +83,7 @@
           <option value={d.id}>{d.sku} — {d.make} {d.model}</option>
         {/each}
       </select>
-      <p class="hint">Optional. Attach the income to a device so it’s reflected in that device’s profit summary.</p>
+      <p class="hint">Optional. The device this money is for. It counts toward that device’s net.</p>
     </div>
     <div>
       <label class="label" for="categoryId">Category</label>
@@ -186,7 +123,7 @@
           <option value={w.id}>{w.code}</option>
         {/each}
       </select>
-      <p class="hint">Optional. Link this income to a work order.</p>
+      <p class="hint">Optional. The job this pays for. The work order holds the breakdown of what was sold; the first payment marks it invoiced.</p>
     </div>
     <div>
       <label class="label" for="platformFees">Platform Fees (USD)</label>
@@ -217,154 +154,11 @@
       <label class="label" for="notes">Notes</label>
       <textarea id="notes" name="notes" class="input"></textarea>
     </div>
-    <div class="md:col-span-3">
-      <button data-testid="income-save-income" class="btn btn-primary">Save Income</button>
-    </div>
   </form>
-{/if}
-
-{#if builderOpen}
-  <Modal title="Sale Builder" size="xl" onclose={() => (builderOpen = false)}>
-      <div class="grid gap-x-4 gap-y-3 md:grid-cols-4">
-        <div>
-          <label class="label" for="bld-date">Date</label>
-          <input id="bld-date" type="date" class="input" bind:value={builderDate} />
-        </div>
-        <div>
-          <label class="label" for="bld-type">Type</label>
-          <select id="bld-type" class="input" bind:value={builderType}>
-            <option value="SALE">Sale</option>
-            <option value="SERVICE">Service</option>
-            <option value="DEPOSIT">Deposit</option>
-          </select>
-        </div>
-        <div>
-          <label class="label" for="bld-channel">Channel</label>
-          <select id="bld-channel" class="input" bind:value={builderChannelId}>
-            <option value={null}>-</option>
-            {#each data.channels as c}
-              <option value={c.id}>{c.name}</option>
-            {/each}
-          </select>
-        </div>
-        <div>
-          <label class="label" for="bld-category">Category</label>
-          <select id="bld-category" class="input" bind:value={builderCategoryId}>
-            <option value={null}>-</option>
-            {#each data.categories as c}
-              <option value={c.id}>{c.name}</option>
-            {/each}
-          </select>
-        </div>
-        <div>
-          <label class="label" for="bld-customer">Customer</label>
-          <select id="bld-customer" class="input" bind:value={builderCustomerId}>
-            <option value={null}>-</option>
-            {#each data.customers as c}
-              <option value={c.id}>{c.name}</option>
-            {/each}
-          </select>
-        </div>
-        <div>
-          <label class="label" for="bld-wo">Work Order</label>
-          <select id="bld-wo" class="input" bind:value={builderWorkOrderId}>
-            <option value={null}>-</option>
-            {#each data.workOrders as w}
-              <option value={w.id}>{w.code}</option>
-            {/each}
-          </select>
-        </div>
-        <div>
-          <label class="label" for="bld-platform">Platform Fees (USD)</label>
-          <input id="bld-platform" type="number" step="0.01" min="0" class="input" bind:value={builderPlatformFeesCents} />
-        </div>
-        <div>
-          <label class="label" for="bld-payment">Payment Fees (USD)</label>
-          <input id="bld-payment" type="number" step="0.01" min="0" class="input" bind:value={builderPaymentFeesCents} />
-        </div>
-        <div>
-          <label class="label" for="bld-ship-rev">Shipping Revenue (USD)</label>
-          <input id="bld-ship-rev" type="number" step="0.01" min="0" class="input" bind:value={builderShippingRevenueCents} />
-        </div>
-        <div>
-          <label class="label" for="bld-ship-cost">Shipping Cost (USD)</label>
-          <input id="bld-ship-cost" type="number" step="0.01" min="0" class="input" bind:value={builderShippingCostCents} />
-        </div>
-        <div>
-          <label class="label" for="bld-tax">Tax Collected (USD)</label>
-          <input id="bld-tax" type="number" step="0.01" min="0" class="input" bind:value={builderTaxCollectedCents} />
-        </div>
-        <div class="md:col-span-2">
-          <label class="label" for="bld-notes">Notes</label>
-          <input id="bld-notes" class="input" bind:value={builderNotes} />
-        </div>
-        <div class="md:col-span-2 flex items-end">
-          <div class="total-box">
-            <div class="text-xs text-muted">Lines Total</div>
-            <div class="figure text-xl">${centsToUsd(builderTotalCents())}</div>
-          </div>
-        </div>
-      </div>
-      <div class="mt-6">
-        <div class="flex items-center justify-between mb-2">
-          <h3 class="text-lg font-semibold">Lines</h3>
-          <button class="btn btn-secondary btn-sm" onclick={() => addBuilderLine()}>Add Line</button>
-        </div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Type</th>
-                <th>Device</th>
-                <th>Part</th>
-                <th>Qty</th>
-                <th>Description</th>
-                <th>Amount (USD)</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each builderLines as ln, i}
-                <tr>
-                  <td>
-                    <select class="input input-sm" bind:value={ln.type}>
-                      <option value="DEVICE">Device</option>
-                      <option value="PART">Part</option>
-                      <option value="LABOR">Labor</option>
-                      <option value="OTHER">Other</option>
-                    </select>
-                  </td>
-                  <td>
-                    <select class="input input-sm" bind:value={ln.deviceId} disabled={ln.type !== 'DEVICE'}>
-                      <option value={null}>-</option>
-                      {#each data.devices as d}
-                        <option value={d.id}>{d.sku} — {d.make} {d.model}</option>
-                      {/each}
-                    </select>
-                  </td>
-                  <td>
-                    <select class="input input-sm" bind:value={ln.partId} disabled={ln.type !== 'PART'}>
-                      <option value={null}>-</option>
-                      {#each data.parts as p}
-                        <option value={p.id}>{p.name}</option>
-                      {/each}
-                    </select>
-                  </td>
-                  <td>
-                    <input class="input input-sm" type="number" min="0" step="1" bind:value={ln.quantity} disabled={ln.type !== 'PART'} />
-                  </td>
-                  <td><input class="input input-sm" bind:value={ln.description} /></td>
-                  <td><input class="input input-sm" value={centsToUsd(ln.amountCents)} onchange={(e) => { ln.amountCents = usdToCents((e.target as HTMLInputElement).value); builderLines = [...builderLines]; }} /></td>
-                  <td><button class="btn btn-danger btn-sm" onclick={() => removeBuilderLine(i)}>Remove</button></td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      {#snippet footer()}
-        <button data-testid="income-save-sale-builder" class="btn btn-primary" onclick={submitBuilder}>Save Income</button>
-      {/snippet}
+  {#snippet footer()}
+    <button type="button" class="btn btn-secondary" onclick={() => (open = false)}>Cancel</button>
+    <button data-testid="income-save-income" form="income-form" class="btn btn-primary">Save Income</button>
+  {/snippet}
   </Modal>
 {/if}
 
@@ -375,6 +169,7 @@
       <th>Date</th>
       <th>Type</th>
       <th>Amount</th>
+      <th>Work Order</th>
       <th>Device</th>
       <th>Category</th>
       <th>Channel</th>
@@ -389,11 +184,18 @@
         <td><StatusBadge status={r.type} /></td>
         <td>{formatUsd(r.amountCents)}</td>
         <td>
-          {#each (r.lineDevices.length > 0 ? r.lineDevices : r.device ? [r.device] : []) as d}
-            <div><SkuTag code={d.sku} href={`/devices/${d.id}`} /> <span class="text-muted">{d.make} {d.model}</span></div>
+          {#if r.workOrder}
+            <a class="link" href={`/work-orders/${r.workOrder.id}`}>{r.workOrder.code}</a>
           {:else}
             -
-          {/each}
+          {/if}
+        </td>
+        <td>
+          {#if r.device}
+            <SkuTag code={r.device.sku} href={`/devices/${r.device.id}`} /> <span class="text-muted">{r.device.make} {r.device.model}</span>
+          {:else}
+            -
+          {/if}
         </td>
         <td>{r.category?.name || '-'}</td>
         <td>{r.channel?.name || '-'}</td>
@@ -414,7 +216,7 @@
       </tr>
       {#if editingId === r.id}
         <tr class="edit-row">
-          <td colspan="8">
+          <td colspan="9">
             <form method="post" action="?/update" class="grid gap-3 md:grid-cols-3">
               <input type="hidden" name="id" value={r.id} />
               <div>
@@ -431,7 +233,7 @@
               </div>
               <div>
                 <label class="label" for={`amount-${r.id}`}>Amount (USD)</label>
-                <input id={`amount-${r.id}`} name="amount" type="number" step="0.01" min="0" class="input" value={(r.amountCents/100).toFixed(2)} />
+                <input id={`amount-${r.id}`} name="amount" type="number" step="0.01" class="input" value={(r.amountCents/100).toFixed(2)} />
               </div>
               <div>
                 <label class="label" for={`deviceId-${r.id}`}>Device</label>
@@ -480,23 +282,23 @@
               </div>
               <div>
                 <label class="label" for={`platformFees-${r.id}`}>Platform Fees</label>
-                <input id={`platformFees-${r.id}`} name="platformFees" type="number" step="0.01" min="0" class="input" />
+                <input id={`platformFees-${r.id}`} name="platformFees" type="number" step="0.01" min="0" class="input" value={usd(r.platformFeesCents)} />
               </div>
               <div>
                 <label class="label" for={`paymentFees-${r.id}`}>Payment Fees</label>
-                <input id={`paymentFees-${r.id}`} name="paymentFees" type="number" step="0.01" min="0" class="input" />
+                <input id={`paymentFees-${r.id}`} name="paymentFees" type="number" step="0.01" min="0" class="input" value={usd(r.paymentFeesCents)} />
               </div>
               <div>
                 <label class="label" for={`shippingRevenue-${r.id}`}>Shipping Revenue</label>
-                <input id={`shippingRevenue-${r.id}`} name="shippingRevenue" type="number" step="0.01" min="0" class="input" />
+                <input id={`shippingRevenue-${r.id}`} name="shippingRevenue" type="number" step="0.01" min="0" class="input" value={usd(r.shippingRevenueCents)} />
               </div>
               <div>
                 <label class="label" for={`shippingCost-${r.id}`}>Shipping Cost</label>
-                <input id={`shippingCost-${r.id}`} name="shippingCost" type="number" step="0.01" min="0" class="input" />
+                <input id={`shippingCost-${r.id}`} name="shippingCost" type="number" step="0.01" min="0" class="input" value={usd(r.shippingCostCents)} />
               </div>
               <div>
                 <label class="label" for={`taxCollected-${r.id}`}>Tax Collected</label>
-                <input id={`taxCollected-${r.id}`} name="taxCollected" type="number" step="0.01" min="0" class="input" />
+                <input id={`taxCollected-${r.id}`} name="taxCollected" type="number" step="0.01" min="0" class="input" value={usd(r.taxCollectedCents)} />
               </div>
               <div class="md:col-span-3">
                 <label class="label" for={`notes-${r.id}`}>Notes</label>
@@ -511,7 +313,7 @@
         </tr>
       {/if}
     {:else}
-      <tr><td colspan="8" class="empty-cell">No income{data.filters.from || data.filters.to ? ' in this date range' : ' yet'}.</td></tr>
+      <tr><td colspan="9" class="empty-cell">No income{data.filters.from || data.filters.to ? ' in this date range' : ' yet'}.</td></tr>
     {/each}
   </tbody>
 </table>

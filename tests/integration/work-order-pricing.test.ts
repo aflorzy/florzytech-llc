@@ -1,12 +1,11 @@
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { actions as workOrderActions, load as workOrderLoad } from '../../src/routes/work-orders/[id]/+page.server';
 import { actions as workOrderListActions } from '../../src/routes/work-orders/+page.server';
 import { actions as incomeActions } from '../../src/routes/income/+page.server';
-import { POST as createLinesPost } from '../../src/routes/income/create-lines/+server';
 import { actions as pricingActions, load as pricingLoad } from '../../src/routes/settings/pricing/+page.server';
 import { load as dashboardLoad } from '../../src/routes/+page.server';
 import { loadDeviceFinancials } from '../../src/lib/server/device-financials';
-import { disconnectDb, getPrisma, makeFormRequest, makeJsonRequest, makeLoadEvent, migrationDataStatements, resetAndSeedDb } from './helpers';
+import { createLegacyIncomeLineTable, disconnectDb, dropLegacyIncomeLineTable, getPrisma, insertLegacyIncomeLine, makeFormRequest, makeLoadEvent, migrationDataStatements, resetAndSeedDb } from './helpers';
 
 // Issue #21: every work order line carries a customer price.
 
@@ -21,8 +20,6 @@ const setMarkup = (percent: string) => (pricingActions.save as any)({ request: m
 const addIncome = (form: Form) => (incomeActions.create as any)({ request: makeFormRequest({ date: '2026-03-01', type: 'SERVICE', ...form }) }) as Promise<any>;
 const editIncome = (form: Form) => (incomeActions.update as any)({ request: makeFormRequest({ date: '2026-03-01', type: 'SERVICE', ...form }) }) as Promise<any>;
 const archiveIncome = (id: string) => (incomeActions.delete as any)({ request: makeFormRequest({ id }) }) as Promise<any>;
-const saleBuilder = (payload: Record<string, unknown>) =>
-  createLinesPost({ request: makeJsonRequest({ date: '2026-03-01', type: 'SERVICE', ...payload }) } as Parameters<typeof createLinesPost>[0]);
 const isFailure = (result: any) => result?.status === 400 && typeof result?.data?.error === 'string';
 
 let seq = 0;
@@ -305,47 +302,6 @@ describe('work order line prices', () => {
       expect((await load(order.id)).summary.invoice.receivedCents).toBe(0);
     });
 
-    it('a Sale Builder sale marks the work order on its head and on each line', async () => {
-      const onHead = await newWorkOrder();
-      const onLine = await newWorkOrder();
-      const untouched = await newWorkOrder();
-      await setMarkup('35');
-
-      const response = await saleBuilder({
-        date: '2026-02-25',
-        workOrderId: onHead.id,
-        lines: [
-          { type: 'LABOR', amountCents: 5000 },
-          { type: 'LABOR', amountCents: 2500, workOrderId: onLine.id }
-        ]
-      });
-      expect(response.status).toBe(200);
-
-      expect((await invoiceState(onHead.id)).invoicedMarkupBps).toBe(3500);
-      expect((await invoiceState(onLine.id)).invoicedMarkupBps).toBe(3500);
-      expect((await invoiceState(onHead.id)).invoicedAt).toEqual(new Date(2026, 1, 25));
-      expect((await invoiceState(onLine.id)).invoicedAt).toEqual(new Date(2026, 1, 25));
-      expect(await invoiceState(untouched.id)).toEqual({ invoicedAt: null, invoicedMarkupBps: null });
-    });
-
-    it('the Sale Builder form action marks it too', async () => {
-      const order = await newWorkOrder();
-      const result = await (incomeActions.create_lines as any)({
-        request: makeJsonRequest({ date: '2026-03-01', type: 'SERVICE', workOrderId: order.id, lines: [{ type: 'LABOR', amountCents: 5000 }] })
-      });
-      expect(result.success).toBe(true);
-      expect((await invoiceState(order.id)).invoicedMarkupBps).toBe(3000);
-    });
-
-    it('a Sale Builder sale that fails marks nothing', async () => {
-      const order = await newWorkOrder();
-      const part = await newPart('Screen', 1500, 1);
-      const response = await saleBuilder({ workOrderId: order.id, lines: [{ type: 'PART', amountCents: 5000, partId: part.id, quantity: 5 }] });
-      expect(response.status).toBe(400);
-      expect(await invoiceState(order.id)).toEqual({ invoicedAt: null, invoicedMarkupBps: null });
-      expect(await getPrisma().income.count({ where: { workOrderId: order.id } })).toBe(0);
-    });
-
     it('second and later payments leave the date and stored percentage alone', async () => {
       const order = await newWorkOrder();
       await addIncome({ amount: '50.00', workOrderId: order.id });
@@ -354,7 +310,7 @@ describe('work order line prices', () => {
       await setMarkup('80');
       // Not even a payment dated earlier than the first one
       await addIncome({ amount: '25.00', workOrderId: order.id, date: '2025-12-01' });
-      await saleBuilder({ workOrderId: order.id, lines: [{ type: 'LABOR', amountCents: 1000 }] });
+      await addIncome({ amount: '10.00', workOrderId: order.id });
       const other = await getPrisma().income.create({ data: { date: new Date(), type: 'SERVICE', amountCents: 700 } });
       await editIncome({ id: other.id, amount: '7.00', workOrderId: order.id });
 
@@ -563,7 +519,10 @@ describe('work order line prices', () => {
       await prisma.income.create({ data: { date: new Date(), type: 'SERVICE', amountCents: 20000, workOrderId: order.id } });
       expect((await load(order.id)).summary.profitCents).toBe(20000 - 14000);
 
+      // The migration also reads the Sale Builder's lines, which have since been dropped
+      await createLegacyIncomeLineTable();
       for (const statement of await migrationDataStatements(MIGRATION)) await prisma.$executeRawUnsafe(statement);
+      await dropLegacyIncomeLineTable();
 
       expect((await prisma.workOrderDevice.findUniqueOrThrow({ where: { id: donorRow.id } })).includeDeviceCost).toBe(false);
       expect((await prisma.workOrderDevice.findUniqueOrThrow({ where: { id: primaryRow.id } })).includeDeviceCost).toBe(true);
@@ -827,29 +786,6 @@ describe('work order line prices', () => {
       expect(data.summary.profitCents).toBe(8900);
     });
 
-    it('counts Sale Builder lines and plain incomes together as received', async () => {
-      const order = await newWorkOrder();
-      const elsewhere = await newWorkOrder();
-      await addLabor(order.id, '100');
-      await addIncome({ amount: '20.00', workOrderId: order.id });
-      // Head on this work order: one line stays here, one is pointed at another work order
-      await saleBuilder({
-        workOrderId: order.id,
-        lines: [
-          { type: 'LABOR', amountCents: 5000 },
-          { type: 'LABOR', amountCents: 700, workOrderId: elsewhere.id }
-        ]
-      });
-      expect(await invoiceOf(order.id)).toMatchObject({ receivedCents: 7000, balanceDueCents: 3000 });
-      expect(await invoiceOf(elsewhere.id)).toMatchObject({ receivedCents: 700, balanceDueCents: -700 });
-
-      // An archived Sale Builder sale drops out through its head
-      const sale = await getPrisma().income.findFirstOrThrow({ where: { amountCents: 5700 } });
-      await archiveIncome(sale.id);
-      expect(await invoiceOf(order.id)).toMatchObject({ receivedCents: 2000 });
-      expect(await invoiceOf(elsewhere.id)).toMatchObject({ receivedCents: 0 });
-    });
-
     it('does not let prices change profit, parts cost or device expenses', async () => {
       const order = await newWorkOrder({ targetAction: 'SELL' });
       const primary = await addDevice(order.id, (await newDevice('FZ-TEST-P', 15000)).id, 'PRIMARY');
@@ -871,6 +807,10 @@ describe('work order line prices', () => {
   });
 
   describe('work orders that existed before prices', () => {
+    // The migration under test was written while the Sale Builder's lines still existed
+    beforeEach(createLegacyIncomeLineTable);
+    afterEach(dropLegacyIncomeLineTable);
+
     async function legacyOrders() {
       const prisma = getPrisma();
       const part = await newPart('Screen', 1500);
@@ -893,12 +833,12 @@ describe('work order line prices', () => {
       // Paid through a Sale Builder line whose head is on no work order
       const paidByLine = await make({ status: 'OPEN' });
       const head = await prisma.income.create({ data: { date: new Date('2026-04-02T10:00:00Z'), type: 'SERVICE', amountCents: 2000 } });
-      await prisma.incomeLine.create({ data: { incomeId: head.id, type: 'LABOR', amountCents: 2000, workOrderId: paidByLine.id } });
+      await insertLegacyIncomeLine({ incomeId: head.id, type: 'LABOR', amountCents: 2000, workOrderId: paidByLine.id });
       // Delivered, with a plain payment and an earlier Sale Builder line
       const deliveredPaid = await make({ status: 'DELIVERED' });
       await prisma.income.create({ data: { date: new Date('2026-05-10T10:00:00Z'), type: 'SERVICE', amountCents: 1000, workOrderId: deliveredPaid.id } });
       const earlierHead = await prisma.income.create({ data: { date: new Date('2026-05-03T10:00:00Z'), type: 'SERVICE', amountCents: 2000 } });
-      await prisma.incomeLine.create({ data: { incomeId: earlierHead.id, type: 'LABOR', amountCents: 2000, workOrderId: deliveredPaid.id } });
+      await insertLegacyIncomeLine({ incomeId: earlierHead.id, type: 'LABOR', amountCents: 2000, workOrderId: deliveredPaid.id });
       const archivedPayment = await make({ status: 'OPEN' });
       await prisma.income.create({ data: { date: new Date(), type: 'SERVICE', amountCents: 5000, workOrderId: archivedPayment.id, archivedAt: new Date() } });
       const open = await make({ status: 'READY' });

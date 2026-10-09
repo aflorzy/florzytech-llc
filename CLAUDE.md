@@ -36,7 +36,7 @@ npx vitest run --config vitest.config.ts tests/integration/<file>.test.ts
 - The test env loader refuses to run if `DATABASE_URL_TEST` is the same database as `DATABASE_URL` in `.env` (tests truncate every table).
 - CI: `.gitea/workflows/ci.yml` runs check, build, unit, integration, e2e and a Docker build on PRs to `master` (needs the `DATABASE_URL_TEST` repo secret); pushes to `master` also push the image and trigger the staging deploy webhook.
 - Docker: `Dockerfile` builds the adapter-node output; runtime needs `DATABASE_URL` and `ORIGIN`. `GET /healthz` is the health probe. Deployment config lives in the `app-deployments` repo under `apps/florzytech-tracker`.
-- `npm run test:snapshot:export` writes an anonymized read-only copy of the `.env` database to `tests/fixtures/prod-snapshot.json` (gitignored); `prod-snapshot.test.ts` is skipped when the file is absent.
+- `npm run test:snapshot:export` writes an anonymized read-only copy of the `.env` database to `tests/fixtures/prod-snapshot.json` (gitignored); `prod-snapshot.test.ts` is skipped when the file is absent. Its Sale Builder migration check also needs a snapshot exported before `20261009140000_retire_sale_builder` ran (one that still has `incomeLine` rows) and is skipped otherwise.
 
 ## Architecture
 
@@ -49,7 +49,7 @@ npx vitest run --config vitest.config.ts tests/integration/<file>.test.ts
 **Key domain models (prisma/schema.prisma):**
 - `Device` — inventory item with a SKU (`FZ-YYYYMM-BBB-NNN`), status enum, and purchase price.
 - `Expense` — purchase/cost entry; supports split receipts via `splitGroupId` + `AllocationMethod`.
-- `Income` — sale/service entry with platform/payment/shipping/tax fee fields; has `IncomeLine[]` for multi-item sales.
+- `Income` — money received: an amount with platform/payment/shipping/tax fee fields, optionally tied to a `WorkOrder` and/or one `Device`. Add Income (`src/routes/income`) is the only way to record one. It carries no breakdown of what was sold; the work order is the breakdown. An income never touches parts stock or a device status.
 - `WorkOrder` — repair job linking a `Customer`, one or more `Device`s (`WorkOrderDevice`), and line items (`WorkOrderItem` of type PART/LABOR/NOTE). A device can be on several work orders; `WorkOrderDevice.includeDeviceCost` marks the one work order its expenses count against (never a `DONOR` row). Every line has a customer price: `WorkOrderItem.manualUnitPriceCents` (PART, else the parts markup), `amountCents` (LABOR), `WorkOrderDevice.priceCents`. `invoicedAt` + `invoicedMarkupBps` freeze the markup once the first income is recorded against the work order or "Mark invoiced" is used; `invoicedAt` with no stored markup means invoiced before prices existed (parts unpriced).
 - `Settings` — single row (id 1) of app-wide settings; currently `partsMarkupBps` (basis points, default 3000).
 - `Part` — inventory with average costing via `PartInventoryMovement` (RECEIPT/CONSUME/ADJUSTMENT). A RECEIPT with `sourceDeviceId` is a part harvested from a donor device (`DeviceStatus.DONOR`); its value comes off the donor's cost and is charged to whichever work order consumes the part.
@@ -60,7 +60,7 @@ npx vitest run --config vitest.config.ts tests/integration/<file>.test.ts
 - `src/lib/parts.ts` — `effectiveUnitCostCents`: a part's `averageCostCents` once it has been received through a receipt, else the hand-entered `unitCostCents`. Use it wherever stock is valued.
 - `src/lib/pricing.ts` — the one place prices are rounded: `defaultUnitPriceCents` (cost plus markup per unit, half a cent up), `partLinePrice`, `impliedMarkupPercent`, and the string parsers `parseUsdToCents` / `parsePercentToBps`. Integer cents and basis points only.
 - `src/lib/server/work-order-pricing.ts` — reads and writes the parts markup setting, `markWorkOrdersInvoiced` (call it inside the transaction of anything that records or re-points an income), and `loadReceivedCents`.
-- `src/lib/server/device-financials.ts` — per-device income, expenses, parts used and net, shared by the Devices list and detail pages. Sale Builder sales are counted through their `IncomeLine`s (the head is skipped when it has device lines); expenses received into parts stock are left out and charged as parts used when consumed on a work order. Value harvested from a donor into stock is taken off its expenses the same way (`unharvestedExpensesCents`), on the device pages and in work-order profit.
+- `src/lib/server/device-financials.ts` — per-device income, expenses, parts used and net, shared by the Devices list and detail pages. Income is every income with the device on it (an income with only a work order credits no device); expenses received into parts stock are left out and charged as parts used when consumed on a work order. Value harvested from a donor into stock is taken off its expenses the same way (`unharvestedExpensesCents`), on the device pages and in work-order profit.
 
 **Guide (keep it current):** `src/lib/guide.ts` describes how the app behaves today, as the real scenarios it is used for (buy and resell, customer repair, donor, accessory, buying parts, recording income) and how each headline figure is worked out. It is the single source for the in-app Guide page (`/guide`) and the first thing to read before touching money logic. Any change that alters what a user does or how a figure is calculated must update the matching entry in the same change. It documents current behaviour only; planned work belongs in Gitea issues.
 
@@ -77,3 +77,4 @@ npx vitest run --config vitest.config.ts tests/integration/<file>.test.ts
 - E2E tests (`tests/e2e/`) use Playwright against the dev server; global setup in `tests/e2e/global-setup.ts`.
 - Unit tests live in `tests/unit/` (currently sparse).
 - Fixtures and DB reset scripts: `tests/utils/seed-fixtures.mjs`, `tests/utils/db-reset.mjs`.
+- Data migrations are tested by replaying them: `runMigration` / `migrationDataStatements` in `tests/integration/helpers.ts`. `createLegacyIncomeLineTable` puts back the Sale Builder's dropped `IncomeLine` table for tests of migrations written while it existed.

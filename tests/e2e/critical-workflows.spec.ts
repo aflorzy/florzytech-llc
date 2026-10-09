@@ -171,11 +171,12 @@ test('customer-brought-device workflow does not include purchase expense', async
   await expect(page.getByTestId('dashboard-spending-power')).toHaveText('$287.00');
 });
 
-test('Sale Builder sells several devices in one income and credits each device', async ({ page }) => {
+// Issue #14: Add Income is the only way to record income; a sale of several devices is one income per device
+test('a sale of two devices on one work order is one income per device, credited to each and added up on the work order', async ({ page }) => {
   // 1) Create two devices
   const devices = [
-    { serial: 'PW-BUILDER-001', model: 'Pixel 7', amount: '300.00', sku: '' },
-    { serial: 'PW-BUILDER-002', model: 'Pixel 8', amount: '100.00', sku: '' }
+    { serial: 'PW-SALE-001', model: 'Pixel 7', amount: '300.00', fee: '5.00', role: 'PRIMARY', net: '$295.00', sku: '' },
+    { serial: 'PW-SALE-002', model: 'Pixel Buds', amount: '100.00', fee: '', role: 'ACCESSORY', net: '$100.00', sku: '' }
   ];
   await page.goto('/devices');
   for (const d of devices) {
@@ -190,43 +191,66 @@ test('Sale Builder sells several devices in one income and credits each device',
     await page.goto('/devices');
   }
 
-  // 2) One Sale Builder income with a DEVICE line per device
-  await page.goto('/income');
-  const builder = await openSplitReceiptModal(page, page.getByTestId('income-open-sale-builder'));
-  await builder.locator('#bld-category').selectOption({ label: 'Device Sale' });
-  for (let i = 0; i < devices.length; i++) {
-    if (i > 0) await builder.getByRole('button', { name: 'Add Line' }).click();
-    const row = builder.locator('tbody tr').nth(i);
-    await expect(row).toBeVisible();
-    await row.locator('select').nth(0).selectOption('DEVICE');
-    await selectOptionByLabelContains(row.locator('select').nth(1), devices[i].sku);
-    const amount = row.locator('td').nth(5).getByRole('textbox');
-    await amount.fill(devices[i].amount);
-    await amount.blur();
+  // 2) One "Sell" work order holding both devices
+  await page.goto('/work-orders');
+  await openCollapsibleForm(page, page.getByTestId('work-orders-toggle-form'), page.getByLabel('Target Action'));
+  await page.getByLabel('Target Action').selectOption('SELL');
+  const note = 'PW two device sale';
+  await page.getByLabel('Notes').fill(note);
+  await submitAndWait(page, page.getByTestId('work-orders-create-work-order'));
+  const workOrderLink = page.locator('tbody tr', { hasText: note }).first().getByRole('link', { name: /^WO-/ });
+  const workOrderCode = (await workOrderLink.innerText()).trim();
+  await workOrderLink.click();
+  await page.waitForURL(/\/work-orders\/[^/]+$/);
+  const workOrderUrl = page.url();
+  for (const d of devices) {
+    const addDevice = page.locator('form[action="?/add_device"]');
+    await selectOptionByLabelContains(addDevice.locator('select[name="deviceId"]'), d.sku);
+    await addDevice.locator('select[name="role"]').selectOption(d.role);
+    await submitAndWait(page, addDevice.locator('button', { hasText: 'Add' }));
+    await expect(page.locator('tbody tr', { hasText: d.sku }).first()).toBeVisible();
   }
-  await Promise.all([
-    page.waitForResponse((res) => res.url().includes('/income/create-lines') && res.status() === 200),
-    builder.getByTestId('income-save-sale-builder').click()
-  ]);
-  await page.waitForLoadState('networkidle');
 
-  // 3) The income row shows the category and both devices
+  // 3) There is no Sale Builder; each device gets its own income on the work order
   await page.goto('/income');
-  const incomeRow = page.locator('tbody tr', { hasText: '$400.00' }).first();
-  await expect(incomeRow).toContainText('Device Sale');
-  for (const d of devices) await expect(incomeRow).toContainText(d.sku);
+  await expect(page.getByTestId('income-open-sale-builder')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Sale Builder' })).toHaveCount(0);
+  for (const d of devices) {
+    const modal = await openSplitReceiptModal(page, page.getByTestId('income-toggle-form'));
+    await modal.getByLabel('Amount (USD)').fill(d.amount);
+    await selectOptionByLabelContains(modal.locator('select[name="deviceId"]'), d.sku);
+    await modal.locator('select[name="workOrderId"]').selectOption({ label: workOrderCode });
+    if (d.fee) await modal.getByLabel('Platform Fees (USD)').fill(d.fee);
+    await submitAndWait(page, modal.getByTestId('income-save-income'));
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    const row = page.locator('tbody tr', { hasText: d.sku }).first();
+    await expect(row).toContainText(`$${d.amount}`);
+    await expect(row).toContainText(workOrderCode);
+  }
 
-  // 4) Each device is sold and carries its own share of the sale
+  // 4) Editing an income shows its fees, so saving without touching them keeps them
+  const feeRow = page.locator('tbody tr', { hasText: devices[0].sku }).first();
+  await feeRow.getByRole('button', { name: 'Edit' }).click();
+  const editForm = page.locator('form[action="?/update"]');
+  await expect(editForm.locator('input[name="platformFees"]')).toHaveValue('5.00');
+  await expect(editForm.locator('input[name="paymentFees"]')).toHaveValue('');
+  await submitAndWait(page, editForm.getByRole('button', { name: 'Save' }));
+
+  // 5) Each device carries its own sale, net of its own fee; recording income did not change a status
   await page.goto('/devices');
   for (const d of devices) {
     const row = page.locator('tbody tr', { hasText: d.serial }).first();
-    await expect(row).toContainText(`$${d.amount}`);
-    await expect(row.locator('select[name="status"]')).toHaveValue('SOLD');
+    await expect(row).toContainText(d.net);
+    await expect(row.locator('select[name="status"]')).toHaveValue('PURCHASED');
   }
 
-  // Seed baseline: 137.00, +400.00 => 537.00
+  // 6) The work order adds both incomes up
+  await page.goto(workOrderUrl);
+  await expect(page.getByTestId('wo-received')).toContainText('$400.00');
+
+  // Seed baseline: 137.00, +300.00 - 5.00 + 100.00 => 532.00
   await page.goto('/');
-  await expect(page.getByTestId('dashboard-spending-power')).toHaveText('$537.00');
+  await expect(page.getByTestId('dashboard-spending-power')).toHaveText('$532.00');
 });
 
 // Issue #21: prices on work order lines, the parts markup and "invoiced"

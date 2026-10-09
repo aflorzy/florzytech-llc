@@ -63,7 +63,7 @@ export const figures: GuideFigure[] = [
     formula: 'Income − fees + shipping net − expenses − parts used',
     notes: [
       'Income is every income with this device picked on it. An income with only a work order picked is not credited to any device.',
-      'A Sale Builder sale counts through its device lines, each with its share of the fees and shipping.',
+      'One income holds one device. A sale of several devices is either one income per device, or one income on the work order alone, which credits the work order and none of the devices.',
       'Fees are platform and payment fees. Shipping net is shipping revenue minus shipping cost. Tax collected is left out.',
       'Expenses are the expenses with this device picked on them.',
       'An expense that was received into parts stock is left out here, marked "(stock)" on the device page. Its cost arrives as parts used when the part goes on a work order.',
@@ -82,8 +82,7 @@ export const figures: GuideFigure[] = [
       'Device expenses are the expenses of each device on the work order whose "Device cost" is counted here, less anything received into parts stock or harvested.',
       'A device counts its cost on one work order only. The first work order it is added to gets it; "Count cost here" moves it and "Exclude cost" drops it.',
       'A device added with the role Donor never counts its cost on the work order. Its cost is charged through the parts harvested from it.',
-      'Prices on the lines are what you plan to charge. They are not revenue and not a cost: revenue only appears when an income is recorded. Setting or changing a price never changes this figure.',
-      'If any Sale Builder sale is tied to the work order, only Sale Builder lines count as revenue and plain incomes on the same work order are ignored.'
+      'Prices on the lines are what you plan to charge. They are not revenue and not a cost: revenue only appears when an income is recorded. Setting or changing a price never changes this figure.'
     ]
   },
   {
@@ -109,7 +108,7 @@ export const figures: GuideFigure[] = [
     notes: [
       'The default parts markup is one percentage under Settings > Pricing. It starts at 30%.',
       'While a work order is not invoiced, its part lines on the default price follow the current setting, so changing the setting moves them.',
-      'A work order becomes invoiced when the first income is recorded against it (Add Income, an income edited to point at it, or a Sale Builder sale, even for $0) or when "Mark invoiced" is clicked, whichever comes first. The markup at that moment is stored on the work order and used from then on, including for parts added later.',
+      'A work order becomes invoiced when the first income is recorded against it (Add Income, or an income edited to point at it, even for $0) or when "Mark invoiced" is clicked, whichever comes first. The markup at that moment is stored on the work order and used from then on, including for parts added later.',
       'The invoiced date is the date on that first income, so an income entered late still dates the invoice correctly. "Mark invoiced" uses today.',
       'Once invoiced it stays invoiced: later payments change nothing, and archiving or moving the payment does not undo it. "Undo invoiced" is the only way back, and puts the default-priced parts on the current setting again.',
       'Typed prices are never changed by the setting, invoiced or not.',
@@ -124,7 +123,6 @@ export const figures: GuideFigure[] = [
     notes: [
       'Total cost is the same parts cost and device expenses used for work order profit.',
       'Received is the amount on every income tied to the work order, before fees, shipping and tax. Archived incomes are left out.',
-      'A Sale Builder sale counts through its lines, so a line pointed at another work order is received there. Plain incomes and Sale Builder sales on the same work order both count here.',
       'Balance due is negative when more was received than the invoice total.',
       'Expected profit is what the job makes if the invoice is paid in full with no fees. Work order profit is what it has made so far from the incomes actually recorded.'
     ]
@@ -235,12 +233,13 @@ export const scenarios: GuideScenario[] = [
     steps: [
       { where: 'Devices', href: '/devices', action: 'Add Device for the accessory, and an Expense with it picked if you paid for it.' },
       { where: 'Work order', action: 'On the sale\'s work order, add the accessory under Devices with the role Accessory, and type what you charge for it under Price.' },
-      { where: 'Income', href: '/income', action: 'Record the sale. One income holds one device, so to credit the accessory, record two incomes on the same work order: one with the main device, one with the accessory.' }
+      { where: 'Income', href: '/income', action: 'Record the sale. One income holds one device, so to credit the accessory, record two incomes on the same work order: one with the main device, one with the accessory. Or record one income with only the Work Order picked.' }
     ],
     numbers: [
       'The accessory\'s expenses count on the sale\'s work order, unless an earlier work order (such as its own repair) already carries them.',
       'With two incomes, each device shows its own net and the work order adds both together.',
-      'With a single income on the main device, the main device\'s net includes the accessory\'s price and the accessory shows only its cost.'
+      'With a single income on the main device, the main device\'s net includes the accessory\'s price and the accessory shows only its cost.',
+      'With a single income on the work order alone, the work order shows the whole sale and both devices show only their cost.'
     ],
     watchOut: ['If the accessory had its own repair work order first, its cost stays there and shows "Not counted" on the sale. Click "Count cost here" on the sale if you want it there.']
   },
@@ -267,20 +266,24 @@ export const scenarios: GuideScenario[] = [
   {
     id: 'record-income',
     title: 'Record income',
-    when: 'Any money received.',
+    when: 'Any money received. Add Income is the only way to record it.',
     steps: [
       { where: 'Income', href: '/income', action: 'Add Income. Enter the amount, then fees, shipping revenue, shipping cost and tax collected if any.' },
-      { where: 'Add Income', action: 'Pick the Work Order if it was for a job, and the Device it was for. Either, both or neither is allowed.' }
+      { where: 'Add Income', action: 'Pick the Work Order if it was for a job, and the Device it was for. Either, both or neither is allowed.' },
+      { where: 'Work order', action: 'What was sold is not entered on the income. It is the work order: its devices, the parts used, labor and their prices.' }
     ],
     numbers: [
       'Work Order picked: counts as that work order\'s revenue and under its Received. If it is the first payment against the work order, the work order becomes invoiced.',
       'Device picked: counts toward that device\'s net.',
-      'Neither picked: counts in spending power only.'
+      'Work Order picked and no Device: the whole amount is the work order\'s and no device is credited.',
+      'Neither picked: counts in spending power only.',
+      'Every income counts once in spending power, whatever is picked: amount + shipping revenue − platform fees − payment fees − shipping cost.',
+      'A refund you pay out is an income with a negative amount. It comes off spending power, the device and the work order it is tied to.'
     ],
     watchOut: [
-      'Sale Builder records one sale as several lines. A Device line sets that device to Sold. A Part line with a quantity takes the part out of stock itself.',
-      'Do not use a Sale Builder Part line for a part that is already on the work order: stock is taken twice, and the Sale Builder consumption is not in the work order\'s parts cost.',
-      'Add Income never changes a device\'s status or parts stock.'
+      'Add Income never changes a device\'s status or parts stock. A part leaves stock only when it is added to a work order, so it cannot be taken out twice.',
+      'The date filter on the Income page is in calendar days and includes the first and last day.',
+      'Incomes that were recorded with the old Sale Builder are ordinary incomes now. One that covered several devices is tied to its work order only, with what each device sold for kept in its notes.'
     ]
   },
   {

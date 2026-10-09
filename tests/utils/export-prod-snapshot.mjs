@@ -42,6 +42,12 @@ async function main() {
         const asOf = new Date();
         const d30 = new Date(asOf.getTime() - 30 * 24 * 60 * 60 * 1000);
 
+        // The Sale Builder's lines exist only in a database that has not yet run the
+        // retire_sale_builder migration. They are exported when present so the snapshot test can
+        // check that migration against them.
+        const [{ name: linesTable }] = await tx.$queryRawUnsafe(`SELECT to_regclass('public."IncomeLine"')::text AS name`);
+        const incomeLines = linesTable ? await tx.$queryRawUnsafe('SELECT * FROM "IncomeLine"') : [];
+
         const tables = {
           category: await tx.category.findMany(),
           salesChannel: await tx.salesChannel.findMany(),
@@ -55,8 +61,8 @@ async function main() {
           workOrderItem: (await tx.workOrderItem.findMany()).map(scrub.workOrderItem),
           expense: (await tx.expense.findMany({ orderBy: [{ date: 'asc' }, { createdAt: 'asc' }] })).map(scrub.expense),
           income: (await tx.income.findMany({ orderBy: [{ date: 'asc' }, { createdAt: 'asc' }] })).map(scrub.income),
-          incomeLine: (await tx.incomeLine.findMany()).map(scrub.incomeLine),
-          partInventoryMovement: (await tx.partInventoryMovement.findMany()).map(scrub.partInventoryMovement)
+          partInventoryMovement: (await tx.partInventoryMovement.findMany()).map(scrub.partInventoryMovement),
+          ...(linesTable ? { incomeLine: incomeLines.map(scrub.incomeLine) } : {})
         };
 
         // Expected dashboard numbers, computed in SQL so they do not depend on the app's own code.

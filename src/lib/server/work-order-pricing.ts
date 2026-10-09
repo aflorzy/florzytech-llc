@@ -27,17 +27,9 @@ export async function markWorkOrdersInvoiced(db: Db, workOrderIds: Array<string 
   await db.workOrder.updateMany({ where: { id: { in: ids }, invoicedAt: null }, data: { invoicedAt, invoicedMarkupBps } });
 }
 
-// Money received against a work order: what was paid on each income, before fees, shipping
-// and tax. A Sale Builder sale counts through its lines, since a line can point at a
-// different work order than its head (a line with none follows its head); any other income
-// counts through its head.
+// Money received against a work order: the amount on every income tied to it, before fees,
+// shipping and tax
 export async function loadReceivedCents(workOrderId: string, db: Db = prisma): Promise<number> {
-  const [lines, heads] = await Promise.all([
-    db.incomeLine.aggregate({
-      where: { archivedAt: null, OR: [{ workOrderId, income: { archivedAt: null } }, { workOrderId: null, income: { archivedAt: null, workOrderId } }] },
-      _sum: { amountCents: true }
-    }),
-    db.income.aggregate({ where: { workOrderId, archivedAt: null, lines: { none: { archivedAt: null } } }, _sum: { amountCents: true } })
-  ]);
-  return (lines._sum.amountCents || 0) + (heads._sum.amountCents || 0);
+  const received = await db.income.aggregate({ where: { workOrderId, archivedAt: null }, _sum: { amountCents: true } });
+  return received._sum.amountCents || 0;
 }

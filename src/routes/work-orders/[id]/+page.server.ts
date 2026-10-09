@@ -27,31 +27,17 @@ export const load: PageServerLoad = async ({ params }) => {
       }
     }
   });
-  // Income lines tied to this work order (for revenue and fee allocations).
-  // Archiving an income only stamps the head, so the head is checked as well.
-  const incomeLines = await prisma.incomeLine.findMany({
-    where: { workOrderId: id, archivedAt: null, income: { archivedAt: null } },
+  // Revenue is every income tied to this work order; several payments add up
+  const incomes = await prisma.income.findMany({
+    where: { workOrderId: id, archivedAt: null },
     select: {
       amountCents: true,
-      allocatedPlatformFeesCents: true,
-      allocatedPaymentFeesCents: true,
-      allocatedShippingRevenueCents: true,
-      allocatedShippingCostCents: true
+      platformFeesCents: true,
+      paymentFeesCents: true,
+      shippingRevenueCents: true,
+      shippingCostCents: true
     }
   });
-  // If there are no income lines, fall back to Income heads linked to this WO
-  const incomeHeads = incomeLines.length === 0
-    ? await prisma.income.findMany({
-        where: { workOrderId: id, archivedAt: null },
-        select: {
-          amountCents: true,
-          platformFeesCents: true,
-          paymentFeesCents: true,
-          shippingRevenueCents: true,
-          shippingCostCents: true
-        }
-      })
-    : [];
 
   // Compute parts cost from WO items (snapshot cost * qty)
   const partsCostCents = (workOrder?.items || []).reduce((sum, it) => {
@@ -66,18 +52,7 @@ export const load: PageServerLoad = async ({ params }) => {
     if (it.type === 'LABOR') return sum + (it.amountCents || 0);
     return sum;
   }, 0);
-  const incomeTotalsFromLines = incomeLines.reduce(
-    (acc, ln) => {
-      acc.gross += ln.amountCents || 0;
-      acc.shipRev += ln.allocatedShippingRevenueCents || 0;
-      acc.platform += ln.allocatedPlatformFeesCents || 0;
-      acc.payment += ln.allocatedPaymentFeesCents || 0;
-      acc.shipCost += ln.allocatedShippingCostCents || 0;
-      return acc;
-    },
-    { gross: 0, platform: 0, payment: 0, shipRev: 0, shipCost: 0 }
-  );
-  const incomeTotalsFromHeads = incomeHeads.reduce(
+  const incomeTotals = incomes.reduce(
     (acc, h) => {
       acc.gross += h.amountCents || 0;
       acc.shipRev += h.shippingRevenueCents || 0;
@@ -88,7 +63,6 @@ export const load: PageServerLoad = async ({ params }) => {
     },
     { gross: 0, platform: 0, payment: 0, shipRev: 0, shipCost: 0 }
   );
-  const incomeTotals = incomeLines.length > 0 ? incomeTotalsFromLines : incomeTotalsFromHeads;
   const netRevenueCents = incomeTotals.gross + incomeTotals.shipRev - incomeTotals.platform - incomeTotals.payment - incomeTotals.shipCost;
 
   // Device-linked expenses: non-archived expenses linked to devices in this WO.

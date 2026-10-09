@@ -2,7 +2,6 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { actions as workOrderActions, load as workOrderLoad } from '../../src/routes/work-orders/[id]/+page.server';
 import { load as deviceDetailLoad } from '../../src/routes/devices/[id]/+page.server';
 import { POST as splitPost } from '../../src/routes/expenses/split/+server';
-import { POST as createLinesPost } from '../../src/routes/income/create-lines/+server';
 import { actions as incomeActions } from '../../src/routes/income/+page.server';
 import { disconnectDb, getPrisma, makeFormRequest, makeJsonRequest, resetAndSeedDb } from './helpers';
 
@@ -110,19 +109,16 @@ describe('work order inventory and financial rollup', () => {
     expect(data.summary.profitCents).toBe(7600);
   });
 
-  // Issue #8: archiving an income archives the header only; its lines must stop counting too
-  it('leaves an archived Sale Builder income out of work-order revenue and profit', async () => {
+  // Issue #8: an archived income stops counting toward its work order
+  it('leaves an archived income out of work-order revenue and profit', async () => {
     const prisma = getPrisma();
     const wo = await prisma.workOrder.create({ data: { code: 'WO-TEST-ARCHIVED' } });
 
-    const sale = (payload: Record<string, unknown>) =>
-      createLinesPost({
-        request: makeJsonRequest({ date: '2026-03-01', type: 'SERVICE', workOrderId: wo.id, ...payload })
-      } as Parameters<typeof createLinesPost>[0]);
-    const kept = await sale({ platformFeesCents: 100, lines: [{ type: 'LABOR', amountCents: 5000 }] });
-    const archived = await sale({ lines: [{ type: 'LABOR', amountCents: 28000 }] });
-    expect(kept.status).toBe(200);
-    const { id } = (await archived.json()) as { id: string };
+    const pay = (form: Record<string, string>) =>
+      incomeActions.create({ request: makeFormRequest({ date: '2026-03-01', type: 'SERVICE', workOrderId: wo.id, ...form }) } as Parameters<typeof incomeActions.create>[0]);
+    expect(await pay({ amount: '50.00', platformFees: '1.00' })).toEqual({ success: true });
+    expect(await pay({ amount: '280.00' })).toEqual({ success: true });
+    const { id } = await prisma.income.findFirstOrThrow({ where: { workOrderId: wo.id, amountCents: 28000 }, select: { id: true } });
 
     const archiveResult = await incomeActions.delete({ request: makeFormRequest({ id }) } as Parameters<typeof incomeActions.delete>[0]);
     expect(archiveResult).toEqual({ success: true, id });

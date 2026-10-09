@@ -1,13 +1,11 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { actions as incomeActions, load as incomeLoad } from '../../src/routes/income/+page.server';
-import { POST as createLinesPost } from '../../src/routes/income/create-lines/+server';
 import { load as dashboardLoad } from '../../src/routes/+page.server';
-import { disconnectDb, getPrisma, makeFormRequest, makeJsonRequest, makeLoadEvent, resetAndSeedDb } from './helpers';
+import { disconnectDb, getPrisma, makeFormRequest, makeLoadEvent, resetAndSeedDb } from './helpers';
 
 type CreateEvent = Parameters<typeof incomeActions.create>[0];
 type UpdateEvent = Parameters<typeof incomeActions.update>[0];
 type DeleteEvent = Parameters<typeof incomeActions.delete>[0];
-type CreateLinesEvent = Parameters<typeof createLinesPost>[0];
 
 async function loadDashboard() {
   return (await dashboardLoad(makeLoadEvent<Parameters<typeof dashboardLoad>[0]>())) as any;
@@ -202,146 +200,5 @@ describe('income ledger actions', () => {
       const fromOnly = await loadIncome('?from=2026-01-15');
       expect(fromOnly.income.map((i: any) => i.notes)).toEqual(['after', 'inside']);
     });
-  });
-});
-
-describe('income create-lines endpoint (Sale Builder)', () => {
-  beforeEach(async () => {
-    await resetAndSeedDb();
-  });
-
-  afterAll(async () => {
-    await disconnectDb();
-  });
-
-  it('creates a header from line totals, allocates fees per line, sells the device and consumes the part', async () => {
-    const prisma = getPrisma();
-    const device = await prisma.device.findFirstOrThrow({ select: { id: true, status: true } });
-    const part = await prisma.part.create({ data: { name: 'Charger', quantity: 5, averageCostCents: 400 } });
-    const channel = await prisma.salesChannel.findFirstOrThrow({ where: { name: 'eBay' }, select: { id: true } });
-    expect(device.status).not.toBe('SOLD');
-
-    const response = await createLinesPost({
-      request: makeJsonRequest({
-        date: todayStr(),
-        type: 'SALE',
-        channelId: channel.id,
-        notes: ' Bundle sale ',
-        platformFeesCents: 1000,
-        paymentFeesCents: 500,
-        shippingRevenueCents: 300,
-        shippingCostCents: 100,
-        taxCollectedCents: 900,
-        lines: [
-          { type: 'DEVICE', amountCents: 10000, deviceId: device.id, description: 'Phone' },
-          { type: 'PART', amountCents: 5000, partId: part.id, quantity: 2, description: 'Chargers' }
-        ]
-      })
-    } as CreateLinesEvent);
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as { success: boolean; id: string };
-    expect(body.success).toBe(true);
-
-    const income = await prisma.income.findUniqueOrThrow({ where: { id: body.id }, include: { lines: true } });
-    expect(income.amountCents).toBe(15000);
-    expect(income.platformFeesCents).toBe(1000);
-    expect(income.paymentFeesCents).toBe(500);
-    expect(income.shippingRevenueCents).toBe(300);
-    expect(income.shippingCostCents).toBe(100);
-    expect(income.taxCollectedCents).toBe(900);
-    expect(income.notes).toBe('Bundle sale');
-    expect(income.lines).toHaveLength(2);
-
-    // Per-line allocations are floor(total * lineAmount / sumOfLines); the header keeps the exact totals.
-    const deviceLine = income.lines.find((l) => l.type === 'DEVICE')!;
-    expect(deviceLine).toMatchObject({
-      amountCents: 10000,
-      deviceId: device.id,
-      allocatedPlatformFeesCents: 666,
-      allocatedPaymentFeesCents: 333,
-      allocatedShippingRevenueCents: 200,
-      allocatedShippingCostCents: 66,
-      allocatedTaxCents: 600
-    });
-    const partLine = income.lines.find((l) => l.type === 'PART')!;
-    expect(partLine).toMatchObject({
-      amountCents: 5000,
-      partId: part.id,
-      quantity: 2,
-      allocatedPlatformFeesCents: 333,
-      allocatedPaymentFeesCents: 166,
-      allocatedShippingRevenueCents: 100,
-      allocatedShippingCostCents: 33,
-      allocatedTaxCents: 300
-    });
-
-    expect((await prisma.device.findUniqueOrThrow({ where: { id: device.id } })).status).toBe('SOLD');
-
-    expect((await prisma.part.findUniqueOrThrow({ where: { id: part.id } })).quantity).toBe(3);
-    const movement = await prisma.partInventoryMovement.findFirstOrThrow({ where: { partId: part.id, type: 'CONSUME' } });
-    expect(movement).toMatchObject({ quantity: 2, unitCostCents: 400, totalCostCents: 800 });
-
-    const data = await loadDashboard();
-    // Header net: 15000 - 1000 - 500 - 100 + 300
-    expect(data.totals.moneyInNetCents).toBe(28700 + 13700);
-    expect(data.totals.spendingPowerCents).toBe(13700 + 13700);
-    expect(data.totals.taxesCollectedCents).toBe(900);
-    expect(data.last30.partsConsumedCents).toBe(800);
-    expect(data.totals.partsInventoryValueCents).toBe(3 * 400);
-  });
-
-  it('does not downgrade a device that is already shipped', async () => {
-    const prisma = getPrisma();
-    const device = await prisma.device.create({ data: { sku: 'FZ-TEST-SHIPPED', make: 'Apple', model: 'iPad', status: 'SHIPPED' } });
-
-    const response = await createLinesPost({
-      request: makeJsonRequest({ date: todayStr(), type: 'SALE', lines: [{ type: 'DEVICE', amountCents: 20000, deviceId: device.id }] })
-    } as CreateLinesEvent);
-    expect(response.status).toBe(200);
-    expect((await prisma.device.findUniqueOrThrow({ where: { id: device.id } })).status).toBe('SHIPPED');
-  });
-
-  it('rolls back the whole sale when a part line exceeds stock', async () => {
-    const prisma = getPrisma();
-    const device = await prisma.device.findFirstOrThrow({ select: { id: true, status: true } });
-    const part = await prisma.part.create({ data: { name: 'Scarce', quantity: 1, averageCostCents: 400 } });
-
-    const response = await createLinesPost({
-      request: makeJsonRequest({
-        date: todayStr(),
-        type: 'SALE',
-        lines: [
-          { type: 'DEVICE', amountCents: 10000, deviceId: device.id },
-          { type: 'PART', amountCents: 5000, partId: part.id, quantity: 2 }
-        ]
-      })
-    } as CreateLinesEvent);
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ success: false, error: 'Insufficient stock for part sale' });
-
-    expect(await prisma.income.count()).toBe(1);
-    expect(await prisma.incomeLine.count()).toBe(0);
-    expect(await prisma.partInventoryMovement.count()).toBe(0);
-    expect((await prisma.part.findUniqueOrThrow({ where: { id: part.id } })).quantity).toBe(1);
-    expect((await prisma.device.findUniqueOrThrow({ where: { id: device.id } })).status).toBe(device.status);
-
-    const data = await loadDashboard();
-    expect(data.totals.spendingPowerCents).toBe(13700);
-  });
-
-  it('rejects empty and zero-total payloads', async () => {
-    const prisma = getPrisma();
-
-    const noLines = await createLinesPost({ request: makeJsonRequest({ date: todayStr(), type: 'SALE', lines: [] }) } as CreateLinesEvent);
-    expect(noLines.status).toBe(400);
-    expect(await noLines.json()).toEqual({ success: false, error: 'At least one line required' });
-
-    const zeroTotal = await createLinesPost({
-      request: makeJsonRequest({ date: todayStr(), type: 'SALE', lines: [{ type: 'OTHER', amountCents: 0 }] })
-    } as CreateLinesEvent);
-    expect(zeroTotal.status).toBe(400);
-    expect(await zeroTotal.json()).toEqual({ success: false, error: 'Invalid line totals' });
-
-    expect(await prisma.income.count()).toBe(1);
   });
 });

@@ -18,8 +18,6 @@ export type DeviceFinancials = {
   netCents: number;
 };
 
-// A sale with device lines is counted through those lines, so its head is skipped
-const withoutDeviceLines: Prisma.IncomeWhereInput = { lines: { none: { archivedAt: null, deviceId: { not: null } } } };
 const stockReceipt: Prisma.PartInventoryMovementWhereInput = { type: PartInventoryMovementType.RECEIPT, archivedAt: null };
 
 function emptyFinancials(): DeviceFinancials {
@@ -71,44 +69,24 @@ export async function loadPartsUsed(deviceIds: string[]) {
 
 const workOrderRef = { select: { id: true, code: true } };
 
-// Income recorded for one device: plain incomes linked on the head, plus the device's own
-// lines (with their allocated fees) from Sale Builder sales.
+// Income recorded for one device: every income with the device picked on it
 export async function loadDeviceIncomes(deviceId: string) {
-  const [heads, lines] = await Promise.all([
-    prisma.income.findMany({
-      where: { deviceId, archivedAt: null, ...withoutDeviceLines },
-      include: { channel: true, category: true, workOrder: workOrderRef }
-    }),
-    prisma.incomeLine.findMany({
-      where: { deviceId, archivedAt: null, income: { archivedAt: null } },
-      include: { workOrder: workOrderRef, income: { include: { channel: true, category: true, workOrder: workOrderRef } } }
-    })
-  ]);
-
-  type Row = { id: string; date: Date; notes: string | null; channel: { name: string } | null; category: { name: string } | null; workOrder: { id: string; code: string } | null; amountCents: number; feesCents: number; shippingNetCents: number };
-  const rows = new Map<string, Row>();
-  for (const h of heads) {
-    rows.set(h.id, {
-      id: h.id,
-      date: h.date,
-      notes: h.notes,
-      channel: h.channel,
-      category: h.category,
-      workOrder: h.workOrder,
-      amountCents: h.amountCents,
-      feesCents: h.platformFeesCents + h.paymentFeesCents,
-      shippingNetCents: h.shippingRevenueCents - h.shippingCostCents
-    });
-  }
-  for (const ln of lines) {
-    const h = ln.income;
-    const row = rows.get(h.id) ?? { id: h.id, date: h.date, notes: h.notes, channel: h.channel, category: h.category, workOrder: ln.workOrder ?? h.workOrder, amountCents: 0, feesCents: 0, shippingNetCents: 0 };
-    row.amountCents += ln.amountCents;
-    row.feesCents += ln.allocatedPlatformFeesCents + ln.allocatedPaymentFeesCents;
-    row.shippingNetCents += ln.allocatedShippingRevenueCents - ln.allocatedShippingCostCents;
-    rows.set(h.id, row);
-  }
-  return [...rows.values()].sort((a, b) => b.date.getTime() - a.date.getTime());
+  const incomes = await prisma.income.findMany({
+    where: { deviceId, archivedAt: null },
+    orderBy: { date: 'desc' },
+    include: { channel: true, category: true, workOrder: workOrderRef }
+  });
+  return incomes.map((h) => ({
+    id: h.id,
+    date: h.date,
+    notes: h.notes,
+    channel: h.channel,
+    category: h.category,
+    workOrder: h.workOrder,
+    amountCents: h.amountCents,
+    feesCents: h.platformFeesCents + h.paymentFeesCents,
+    shippingNetCents: h.shippingRevenueCents - h.shippingCostCents
+  }));
 }
 
 export async function loadDeviceFinancials(deviceIds: string[]): Promise<Map<string, DeviceFinancials>> {
@@ -116,7 +94,7 @@ export async function loadDeviceFinancials(deviceIds: string[]): Promise<Map<str
   if (deviceIds.length === 0) return out;
 
   const expenseWhere = { deviceId: { in: deviceIds }, archivedAt: null };
-  const [expenses, stockedExpenses, incomeHeads, incomeLines, partsUsed, harvested] = await Promise.all([
+  const [expenses, stockedExpenses, incomes, partsUsed, harvested] = await Promise.all([
     prisma.expense.groupBy({
       by: ['deviceId'],
       where: { ...expenseWhere, partMovements: { none: stockReceipt } },
@@ -129,20 +107,8 @@ export async function loadDeviceFinancials(deviceIds: string[]): Promise<Map<str
     }),
     prisma.income.groupBy({
       by: ['deviceId'],
-      where: { deviceId: { in: deviceIds }, archivedAt: null, ...withoutDeviceLines },
+      where: { deviceId: { in: deviceIds }, archivedAt: null },
       _sum: { amountCents: true, platformFeesCents: true, paymentFeesCents: true, shippingRevenueCents: true, shippingCostCents: true, taxCollectedCents: true }
-    }),
-    prisma.incomeLine.groupBy({
-      by: ['deviceId'],
-      where: { deviceId: { in: deviceIds }, archivedAt: null, income: { archivedAt: null } },
-      _sum: {
-        amountCents: true,
-        allocatedPlatformFeesCents: true,
-        allocatedPaymentFeesCents: true,
-        allocatedShippingRevenueCents: true,
-        allocatedShippingCostCents: true,
-        allocatedTaxCents: true
-      }
     }),
     loadPartsUsed(deviceIds),
     loadHarvestedCents(deviceIds)
@@ -157,21 +123,13 @@ export async function loadDeviceFinancials(deviceIds: string[]): Promise<Map<str
     const f = entry(g.deviceId);
     if (f) f.stockedExpensesCents += g._sum.amountCents || 0;
   }
-  for (const g of incomeHeads) {
+  for (const g of incomes) {
     const f = entry(g.deviceId);
     if (!f) continue;
     f.incomeCents += g._sum.amountCents || 0;
     f.feesCents += (g._sum.platformFeesCents || 0) + (g._sum.paymentFeesCents || 0);
     f.shippingNetCents += (g._sum.shippingRevenueCents || 0) - (g._sum.shippingCostCents || 0);
     f.taxCollectedCents += g._sum.taxCollectedCents || 0;
-  }
-  for (const g of incomeLines) {
-    const f = entry(g.deviceId);
-    if (!f) continue;
-    f.incomeCents += g._sum.amountCents || 0;
-    f.feesCents += (g._sum.allocatedPlatformFeesCents || 0) + (g._sum.allocatedPaymentFeesCents || 0);
-    f.shippingNetCents += (g._sum.allocatedShippingRevenueCents || 0) - (g._sum.allocatedShippingCostCents || 0);
-    f.taxCollectedCents += g._sum.allocatedTaxCents || 0;
   }
   for (const item of partsUsed) {
     const f = entry(item.chargedDeviceId);

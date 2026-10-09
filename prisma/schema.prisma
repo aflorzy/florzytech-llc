@@ -4,48 +4,6 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// Stage C: Multi-Item Sales
-enum IncomeLineType {
-  DEVICE
-  PART
-  LABOR
-  OTHER
-}
-
-model IncomeLine {
-  id        String   @id @default(uuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  archivedAt DateTime?
-
-  income   Income @relation(fields: [incomeId], references: [id])
-  incomeId String
-
-  type IncomeLineType
-
-  // Associations depending on type
-  device   Device? @relation(fields: [deviceId], references: [id])
-  deviceId String?
-
-  part     Part? @relation(fields: [partId], references: [id])
-  partId   String?
-
-  workOrder   WorkOrder? @relation(fields: [workOrderId], references: [id])
-  workOrderId String?
-
-  // Values
-  description String?
-  quantity    Int?    @default(0)
-  amountCents Int     @default(0)
-
-  // Allocations from head
-  allocatedPlatformFeesCents     Int @default(0)
-  allocatedPaymentFeesCents      Int @default(0)
-  allocatedShippingRevenueCents  Int @default(0)
-  allocatedShippingCostCents     Int @default(0)
-  allocatedTaxCents              Int @default(0)
-}
-
 model Income {
   id        String   @id @default(uuid())
   createdAt DateTime @default(now())
@@ -79,9 +37,6 @@ model Income {
 
   customer   Customer? @relation(fields: [customerId], references: [id])
   customerId String?
-
-  // Stage C: Lines
-  lines IncomeLine[]
 }
 
 datasource db {
@@ -163,7 +118,6 @@ model Device {
   incomes  Income[]
   workOrderDevices WorkOrderDevice[]
   workOrderItems   WorkOrderItem[]
-  incomeLines      IncomeLine[]
   harvestedParts   PartInventoryMovement[]
 }
 
@@ -256,7 +210,6 @@ model Part {
   url           String?
   workOrderItems WorkOrderItem[]
   movements     PartInventoryMovement[]
-  incomeLines   IncomeLine[]
 }
 
 model Customer {
@@ -303,7 +256,6 @@ model WorkOrder {
   devices WorkOrderDevice[]
   items   WorkOrderItem[]
   incomes Income[]
-  incomeLines IncomeLine[]
 
   partMovements PartInventoryMovement[]
 }

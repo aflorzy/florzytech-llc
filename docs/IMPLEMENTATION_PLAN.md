@@ -26,7 +26,7 @@ All deletions are soft deletes via `archivedAt`, in line with repository convent
   - Split Receipt lines support quantity and Part selection; inline new Part creation.
   - Inventory receipt movements created; update `Part.quantity` and `Part.averageCostCents` (weighted average including tax/shipping/fees allocations).
   - Work Order Part consumption movements with cost snapshots (COGS) and `quantity` decrements.
-- **Stage C (Multi-Item Sales):**
+- **Stage C (Multi-Item Sales):** retired in #14; kept here as history. The work order is the breakdown of a sale.
   - Income builder with `IncomeLine` for devices, parts, labor, other.
   - Optional links: `Income.workOrderId`, `Income.customerId`.
   - Allocate/attribute fees, shipping, tax to lines where relevant; set `device.status = SOLD` on completion.
@@ -97,7 +97,7 @@ All key questions have been answered by the user. If new edge cases arise during
 - [x] Work Orders minimal (list/create/detail; devices; LABOR/NOTE)
 - [x] Expense vendorOrderNumber UI (create/split/edit)
 - [x] Stage B migration & inventory features
-- [ ] Stage C migration & sale builder (in progress)
+- [x] Stage C migration & sale builder (built, then retired in #14: `IncomeLine` was dropped by `20261009140000_retire_sale_builder` and Add Income is the only way to record income)
 
 ---
 

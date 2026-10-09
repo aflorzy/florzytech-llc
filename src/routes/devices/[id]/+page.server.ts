@@ -9,7 +9,7 @@ export const load: PageServerLoad = async ({ params }) => {
     return { device: null };
   }
 
-  const [financials, expensesList, incomesList, partsUsed] = await Promise.all([
+  const [financials, expensesList, incomesList, partsUsed, workOrderLinks] = await Promise.all([
     loadDeviceFinancials([id]),
     prisma.expense.findMany({
       where: { deviceId: id, archivedAt: null },
@@ -17,7 +17,18 @@ export const load: PageServerLoad = async ({ params }) => {
       include: { category: true, vendor: true, paymentMethod: true, partMovements: { where: { type: 'RECEIPT', archivedAt: null }, select: { id: true } } }
     }),
     loadDeviceIncomes(id),
-    loadPartsUsed([id])
+    loadPartsUsed([id]),
+    prisma.workOrderDevice.findMany({
+      where: { deviceId: id, archivedAt: null, workOrder: { archivedAt: null } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        role: true,
+        includeDeviceCost: true,
+        createdAt: true,
+        workOrder: { select: { id: true, code: true, status: true, targetAction: true, customer: { select: { name: true } } } }
+      }
+    })
   ]);
   const f = financials.get(id)!;
 
@@ -35,6 +46,7 @@ export const load: PageServerLoad = async ({ params }) => {
     },
     expenses: expensesList.map(({ partMovements, ...e }) => ({ ...e, stocked: partMovements.length > 0 })),
     incomes: incomesList,
-    partsUsed
+    partsUsed,
+    workOrders: workOrderLinks
   };
 };

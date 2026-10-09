@@ -2,7 +2,7 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import SkuTag from '$lib/components/SkuTag.svelte';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
-  import { formatUsd, toneOf, toneClass } from '$lib/format';
+  import { formatUsd, toneOf, toneClass, humanizeEnum } from '$lib/format';
   type Device = {
     id: string;
     sku: string;
@@ -44,6 +44,14 @@
     channel?: { name: string } | null;
     feesCents: number;
     shippingNetCents: number;
+    workOrder?: { id: string; code: string } | null;
+  };
+  type WorkOrderRow = {
+    id: string;
+    role: string;
+    includeDeviceCost: boolean;
+    createdAt: string | Date;
+    workOrder: { id: string; code: string; status: string; targetAction: string; customer?: { name: string } | null };
   };
   type PartUsedRow = {
     id: string;
@@ -53,7 +61,7 @@
     part?: { name: string } | null;
     workOrder: { id: string; code: string };
   };
-  let { data } = $props<{ data: { device: Device | null; summary?: Summary; expenses?: ExpenseRow[]; incomes?: IncomeRow[]; partsUsed?: PartUsedRow[] } }>();
+  let { data } = $props<{ data: { device: Device | null; summary?: Summary; expenses?: ExpenseRow[]; incomes?: IncomeRow[]; partsUsed?: PartUsedRow[]; workOrders?: WorkOrderRow[] } }>();
 </script>
 
 {#if !data.device}
@@ -143,6 +151,7 @@
               <th>Amount</th>
               <th>Fees</th>
               <th>Shipping Net</th>
+              <th>Work Order</th>
               <th>Notes</th>
             </tr>
           </thead>
@@ -155,6 +164,7 @@
                 <td>{formatUsd(inc.amountCents)}</td>
                 <td>{formatUsd(inc.feesCents)}</td>
                 <td>{formatUsd(inc.shippingNetCents)}</td>
+                <td>{#if inc.workOrder}<SkuTag code={inc.workOrder.code} href={`/work-orders/${inc.workOrder.id}`} />{:else}-{/if}</td>
                 <td>{inc.notes || '-'}</td>
               </tr>
             {/each}
@@ -163,6 +173,41 @@
         </div>
       {:else}
         <p class="text-sm text-muted">No income linked to this device.</p>
+      {/if}
+    </div>
+    <div class="card min-w-0 xl:col-span-2">
+      <h2 class="card-title">Work Orders</h2>
+      {#if data.workOrders && data.workOrders.length > 0}
+        <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Work Order</th>
+              <th>Added</th>
+              <th>Status</th>
+              <th>Target</th>
+              <th>Customer</th>
+              <th>Role</th>
+              <th>Device cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each data.workOrders as wo}
+              <tr>
+                <td><SkuTag code={wo.workOrder.code} href={`/work-orders/${wo.workOrder.id}`} /></td>
+                <td>{new Date(wo.createdAt).toLocaleDateString()}</td>
+                <td><StatusBadge status={wo.workOrder.status} /></td>
+                <td>{humanizeEnum(wo.workOrder.targetAction)}</td>
+                <td>{wo.workOrder.customer?.name || '-'}</td>
+                <td><StatusBadge status={wo.role} /></td>
+                <td>{#if wo.includeDeviceCost}Counted here{:else}<span class="text-muted">Not counted</span>{/if}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+        </div>
+      {:else}
+        <p class="text-sm text-muted">This device is not on any work order.</p>
       {/if}
     </div>
     <div class="card min-w-0 xl:col-span-2">

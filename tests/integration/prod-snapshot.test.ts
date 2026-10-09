@@ -87,7 +87,9 @@ describe.skipIf(!hasSnapshot)('production snapshot', () => {
 
   it('re-entering every income and expense through the app actions lands on the same totals', async () => {
     const prisma = getPrisma();
-    await insertTables(snapshot, [...REFERENCE_TABLES, 'partInventoryMovement']);
+    // Expenses are re-entered below under new ids, so movements cannot keep pointing at the exported ones.
+    const movements = snapshot.tables.partInventoryMovement.map((m) => ({ ...m, expenseId: null }));
+    await insertTables({ ...snapshot, tables: { ...snapshot.tables, partInventoryMovement: movements } }, [...REFERENCE_TABLES, 'partInventoryMovement']);
 
     for (const income of snapshot.tables.income) {
       const result = await incomeActions.create({

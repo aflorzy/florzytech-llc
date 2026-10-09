@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { actions as workOrderActions, load as workOrderLoad } from '../../src/routes/work-orders/[id]/+page.server';
+import { load as deviceDetailLoad } from '../../src/routes/devices/[id]/+page.server';
 import { POST as splitPost } from '../../src/routes/expenses/split/+server';
 import { POST as createLinesPost } from '../../src/routes/income/create-lines/+server';
 import { actions as incomeActions } from '../../src/routes/income/+page.server';
@@ -206,6 +207,20 @@ describe('work order inventory and financial rollup', () => {
       expect(repairData.summary.deviceExpensesCents).toBe(0);
       expect(repairData.summary.profitCents).toBe(8000);
       expect(repairData.workOrder.devices[0]).toMatchObject({ includeDeviceCost: false, costCountedOn: { id: sale.id, code: 'WO-TEST-SALE' } });
+    });
+
+    it('lists both work orders and their income on the device page', async () => {
+      const { repair } = await soldThenReturned();
+      const device = await getPrisma().device.findFirstOrThrow({ where: { sku: 'FZ-TEST-REPEAT' } });
+      await getPrisma().income.updateMany({ where: { workOrderId: repair.id }, data: { deviceId: device.id } });
+
+      const data = (await deviceDetailLoad({ params: { id: device.id } } as Parameters<typeof deviceDetailLoad>[0])) as any;
+      expect(data.workOrders.map((l: any) => [l.workOrder.code, l.includeDeviceCost]).sort()).toEqual([
+        ['WO-TEST-REPAIR', false],
+        ['WO-TEST-SALE', true]
+      ]);
+      expect(data.incomes).toHaveLength(1);
+      expect(data.incomes[0].workOrder).toEqual({ id: repair.id, code: 'WO-TEST-REPAIR' });
     });
 
     it('moves the cost when it is counted on another work order', async () => {

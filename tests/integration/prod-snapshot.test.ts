@@ -5,7 +5,9 @@ import { load as dashboardLoad } from '../../src/routes/+page.server';
 import { actions as incomeActions } from '../../src/routes/income/+page.server';
 import { actions as expenseActions } from '../../src/routes/expenses/+page.server';
 import { POST as splitPost } from '../../src/routes/expenses/split/+server';
-import { disconnectDb, getPrisma, makeFormRequest, makeJsonRequest, makeLoadEvent, resetDbOnly } from './helpers';
+import { load as workOrderLoad } from '../../src/routes/work-orders/[id]/+page.server';
+import { loadDeviceFinancials } from '../../src/lib/server/device-financials';
+import { disconnectDb, getPrisma, makeFormRequest, makeJsonRequest, makeLoadEvent, migrationDataStatements, resetDbOnly } from './helpers';
 
 // Fixture produced by `npm run test:snapshot:export` (anonymized copy of the app database plus
 // dashboard totals computed in SQL at export time). The suite is skipped when it is absent.
@@ -171,5 +173,87 @@ describe.skipIf(!hasSnapshot)('production snapshot', () => {
 
     const data = await loadDashboard();
     expect(data.totals).toEqual(snapshot.expected.totals);
+  }, 600000);
+
+  // Issue #21: the migration that adds line prices must leave every existing figure alone,
+  // except that a donor's cost comes off the work order that was carrying it.
+  it('adding line prices changes no work order profit except where a donor was counted, and no device net', async () => {
+    const prisma = getPrisma();
+    await insertTables(snapshot, [...REFERENCE_TABLES, ...LEDGER_TABLES]);
+    const replay = async (migration: string) => {
+      for (const statement of await migrationDataStatements(migration)) await prisma.$executeRawUnsafe(statement);
+    };
+    // A snapshot exported before "device cost on one work order" has no such column; give it
+    // what that migration gave production.
+    if (!snapshot.tables.workOrderDevice.some((r) => 'includeDeviceCost' in r)) await replay('20261006120000_work_order_device_cost');
+
+    const workOrders = snapshot.tables.workOrder;
+    const deviceIds = snapshot.tables.device.map((d) => d.id);
+    const loadAll = async () => {
+      const summaries = new Map<string, any>();
+      for (const w of workOrders) summaries.set(w.id, (await workOrderLoad({ params: { id: w.id } } as Parameters<typeof workOrderLoad>[0])) as any);
+      return summaries;
+    };
+    const actual = (s: any) => ({ profitCents: s.profitCents, partsCostCents: s.partsCostCents, deviceExpensesCents: s.deviceExpensesCents, laborPlannedCents: s.laborPlannedCents, income: s.income });
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(snapshot.asOf));
+    const dashboardBefore = await loadDashboard();
+    vi.useRealTimers();
+    const before = await loadAll();
+    const devicesBefore = await loadDeviceFinancials(deviceIds);
+
+    await replay('20261009130000_work_order_line_prices');
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(snapshot.asOf));
+    const dashboardAfter = await loadDashboard();
+    vi.useRealTimers();
+    const after = await loadAll();
+
+    // Spending power and the 30 day figures: no money moved
+    expect(dashboardAfter).toEqual(dashboardBefore);
+    expect(dashboardAfter.totals).toEqual(snapshot.expected.totals);
+    // Device net never depended on which work order carries a cost
+    expect(await loadDeviceFinancials(deviceIds)).toEqual(devicesBefore);
+
+    const changed: string[] = [];
+    for (const w of workOrders) {
+      const was = before.get(w.id);
+      const now = after.get(w.id);
+      // Cost a counted donor was putting on this work order before the migration
+      const donorCostCents = was.workOrder.devices
+        .filter((d: any) => d.role === 'DONOR' && d.includeDeviceCost)
+        .reduce((s: number, d: any) => s + d.expensesCents, 0);
+      expect(actual(now.summary), w.code).toEqual({
+        ...actual(was.summary),
+        deviceExpensesCents: was.summary.deviceExpensesCents - donorCostCents,
+        profitCents: was.summary.profitCents + donorCostCents
+      });
+      if (donorCostCents !== 0) changed.push(w.code);
+      expect(now.workOrder.devices.filter((d: any) => d.role === 'DONOR' && d.includeDeviceCost), w.code).toEqual([]);
+
+      // Finished or paid work orders are invoiced with their parts left unpriced; the rest are open
+      const headOf = (l: Row) => snapshot.tables.income.find((i) => i.id === l.incomeId);
+      const livePayments = [
+        ...snapshot.tables.income.filter((i) => i.workOrderId === w.id && !i.archivedAt),
+        ...snapshot.tables.incomeLine.filter((l) => l.workOrderId === w.id && !l.archivedAt && !headOf(l)?.archivedAt).map((l) => headOf(l)!)
+      ];
+      const hasLivePayment = livePayments.length > 0;
+      const alreadyInvoiced = !!w.invoicedAt;
+      if (alreadyInvoiced) continue;
+      if (['DELIVERED', 'CANCELLED'].includes(w.status) || hasLivePayment) {
+        expect(now.pricing, w.code).toMatchObject({ markupBps: null, markupSource: 'unpriced' });
+        // Dated by its earliest payment, or when it was last changed if it has none
+        const firstPaymentAt = Math.min(...livePayments.map((i) => i.date.getTime()));
+        expect(new Date(now.pricing.invoicedAt).getTime(), w.code).toBe(hasLivePayment ? firstPaymentAt : w.updatedAt.getTime());
+        expect(now.summary.invoice.partsPriceCents, w.code).toBe(0);
+        expect(now.summary.invoice.invoiceTotalCents, w.code).toBe(now.summary.laborPlannedCents);
+      } else {
+        expect(now.pricing, w.code).toMatchObject({ markupBps: 3000, markupSource: 'setting', invoicedAt: null });
+      }
+    }
+    // Listed in the pull request for #21; an export taken after that migration has none left
+    console.log(`Work orders whose profit changes with the donor migration: ${changed.join(', ') || 'none'}`);
   }, 600000);
 });

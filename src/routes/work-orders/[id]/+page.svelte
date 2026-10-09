@@ -3,14 +3,27 @@
   import StatCard from '$lib/components/StatCard.svelte';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import SkuTag from '$lib/components/SkuTag.svelte';
+  import Badge from '$lib/components/Badge.svelte';
   import { formatUsd, humanizeEnum } from '$lib/format';
+  import { formatBps, type PartLinePrice } from '$lib/pricing';
   import { onMount } from 'svelte';
   import { enhance } from '$app/forms';
   import type { ActionResult, SubmitFunction } from '@sveltejs/kit';
   type Customer = { id: string; name: string };
   type Device = { id: string; sku: string; make: string; model: string };
   type Part = { id: string; name: string; averageCostCents?: number | null; unitCostCents?: number | null };
-  type WorkOrderDevice = { id: string; role: string; device: Device; includeDeviceCost: boolean; expensesCents: number; harvestedCents: number; costCountedOn: { id: string; code: string } | null };
+  type WorkOrderDevice = {
+    id: string;
+    role: string;
+    device: Device;
+    includeDeviceCost: boolean;
+    expensesCents: number;
+    harvestedCents: number;
+    costCountedOn: { id: string; code: string } | null;
+    // False for the customer's own device being returned: it has no price
+    priceApplies: boolean;
+    priceCents: number | null;
+  };
   type WorkOrderItem = {
     id: string;
     type: 'LABOR' | 'NOTE' | 'PART';
@@ -20,6 +33,10 @@
     device?: Device | null;
     quantity?: number | null;
     unitCostCentsSnapshot?: number | null;
+    // PART lines only
+    partPrice: PartLinePrice | null;
+    // What the customer is charged for the line; null when it has no price
+    priceCents: number | null;
   };
   type WorkOrder = {
     id: string;
@@ -44,8 +61,33 @@
     };
     deviceExpensesCents: number;
     profitCents: number;
+    invoice: {
+      partsPriceCents: number;
+      laborPriceCents: number;
+      devicesPriceCents: number;
+      invoiceTotalCents: number;
+      totalCostCents: number;
+      expectedProfitCents: number;
+      receivedCents: number;
+      balanceDueCents: number;
+      unpricedPartLines: number;
+    };
   };
-  let { data } = $props<{ data: { workOrder: WorkOrder | null; customers: Customer[]; devices: Device[]; parts: Part[]; summary: Summary } }>();
+  type Pricing = {
+    // Markup on default-priced part lines; null when invoiced before prices existed
+    markupBps: number | null;
+    markupSource: 'setting' | 'invoice' | 'unpriced';
+    settingMarkupBps: number;
+    invoicedAt: string | Date | null;
+  };
+  let { data, form } = $props<{
+    data: { workOrder: WorkOrder | null; customers: Customer[]; devices: Device[]; parts: Part[]; summary: Summary; pricing: Pricing };
+    form?: { error?: string } | null;
+  }>();
+  const invoice = $derived(data.summary.invoice as Summary['invoice']);
+  const pricing = $derived(data.pricing as Pricing);
+  // Cents as a plain amount for a price input
+  const amountOf = (cents: number | null | undefined) => (cents == null ? '' : (cents / 100).toFixed(2));
   let w = $derived(data.workOrder as WorkOrder | null);
   let itemType = $state<'LABOR' | 'NOTE' | 'PART'>('LABOR');
   let itemTypeLoaded = $state(false);
@@ -142,9 +184,69 @@
     {#snippet meta()}
       <StatusBadge status={w.status} />
       <span class="text-sm text-muted">{humanizeEnum(w.targetAction)}{w.customer ? ` for ${w.customer.name}` : ''}</span>
+      {#if pricing.invoicedAt}
+        <Badge tone="info">Invoiced {new Date(pricing.invoicedAt).toLocaleDateString()}</Badge>
+      {:else}
+        <Badge>Not invoiced</Badge>
+      {/if}
+    {/snippet}
+    {#snippet actions()}
+      {#if pricing.invoicedAt}
+        <form method="post" action="?/unmark_invoiced" onsubmit={(e) => { if (!confirm(`Undo invoiced? Parts on the default price will follow the current markup (${formatBps(pricing.settingMarkupBps)}).`)) { e.preventDefault(); } }}>
+          <button class="btn btn-ghost">Undo invoiced</button>
+        </form>
+      {:else}
+        <form method="post" action="?/mark_invoiced">
+          <button class="btn btn-secondary">Mark invoiced</button>
+        </form>
+      {/if}
     {/snippet}
   </PageHeader>
 
+  {#if form?.error}
+    <div class="alert-error mb-4" role="alert">{form.error}</div>
+  {/if}
+
+  <h2 class="mb-2 text-sm font-medium text-muted">Invoice</h2>
+  <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <StatCard
+      size="sm"
+      label="Invoice Total"
+      testid="wo-invoice-total"
+      cents={invoice.invoiceTotalCents}
+      hint={`Parts ${formatUsd(invoice.partsPriceCents)}, labor ${formatUsd(invoice.laborPriceCents)}, devices ${formatUsd(invoice.devicesPriceCents)}`}
+    />
+    <StatCard
+      size="sm"
+      label="Expected Profit"
+      testid="wo-expected-profit"
+      cents={invoice.expectedProfitCents}
+      tone="auto"
+      hint={`Invoice total minus total cost of ${formatUsd(invoice.totalCostCents)}`}
+    />
+    <StatCard size="sm" label="Received" testid="wo-received" cents={invoice.receivedCents} hint="Paid on every income tied to this work order, before fees" />
+    <StatCard
+      size="sm"
+      label="Balance Due"
+      testid="wo-balance-due"
+      cents={invoice.balanceDueCents}
+      hint={invoice.balanceDueCents < 0 ? `Paid ${formatUsd(-invoice.balanceDueCents)} over the invoice total` : 'Invoice total minus received'}
+    />
+  </div>
+  <p class="hint mb-6 mt-2">
+    {#if pricing.markupSource === 'setting'}
+      Parts are priced at cost plus {formatBps(pricing.settingMarkupBps)}, the default in <a class="link" href="/settings/pricing">Settings</a>, unless you type a price. Invoicing fixes that percentage for this work order.
+    {:else if pricing.markupSource === 'invoice'}
+      Invoiced: parts stay at cost plus {formatBps(pricing.markupBps ?? 0)}, the markup when it was invoiced{pricing.settingMarkupBps !== pricing.markupBps ? ` (the default is now ${formatBps(pricing.settingMarkupBps)})` : ''}, unless you type a price.
+    {:else}
+      Invoiced before line prices existed, so parts are not priced unless you type a price.
+    {/if}
+    {#if invoice.unpricedPartLines > 0}
+      <span class="text-accent-ink">{invoice.unpricedPartLines} part {invoice.unpricedPartLines === 1 ? 'line has' : 'lines have'} no price yet.</span>
+    {/if}
+  </p>
+
+  <h2 class="mb-2 text-sm font-medium text-muted">Actual so far</h2>
   <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
     <StatCard size="sm" label="Gross Revenue" cents={data.summary.income.grossCents || 0} />
     <StatCard
@@ -201,7 +303,7 @@
     </form>
   </div>
 
-  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start mb-6">
+  <div class="grid grid-cols-1 gap-4 items-start mb-6">
     <div class="card space-y-4 min-w-0">
       <h2 class="text-lg font-semibold">Devices</h2>
       <form method="post" action="?/add_device" class="grid gap-2 md:grid-cols-12 w-full">
@@ -220,14 +322,16 @@
       </form>
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th>Device</th><th>Role</th><th>Device cost</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Device</th><th>Role</th><th>Device cost</th><th>Price</th><th>Actions</th></tr></thead>
           <tbody>
             {#each w.devices as od}
               <tr>
                 <td><SkuTag code={od.device.sku} href={`/devices/${od.device.id}`} /> <span class="text-muted">{od.device.make} {od.device.model}</span></td>
                 <td><StatusBadge status={od.role} /></td>
                 <td>
-                  {#if od.includeDeviceCost}
+                  {#if od.role === 'DONOR'}
+                    <span class="text-muted">Recouped through its parts</span>
+                  {:else if od.includeDeviceCost}
                     {formatUsd(od.expensesCents)}
                     {#if od.harvestedCents > 0}
                       <div class="text-xs text-muted">after {formatUsd(od.harvestedCents)} harvested to parts stock</div>
@@ -240,11 +344,27 @@
                   {/if}
                 </td>
                 <td>
-                  <form method="post" action="?/set_device_cost" class="inline">
-                    <input type="hidden" name="id" value={od.id} />
-                    <input type="hidden" name="include" value={od.includeDeviceCost ? 'false' : 'true'} />
-                    <button class="btn btn-secondary btn-sm">{od.includeDeviceCost ? 'Exclude cost' : 'Count cost here'}</button>
-                  </form>
+                  {#if od.priceApplies}
+                    <form method="post" action="?/set_device_price" class="flex items-center gap-1.5">
+                      <input type="hidden" name="id" value={od.id} />
+                      <input name="price" inputmode="decimal" autocomplete="off" placeholder="0.00" aria-label={`Price for ${od.device.sku}`} class="input input-sm w-24" value={amountOf(od.priceCents)} />
+                      <button class="btn btn-secondary btn-sm">Save</button>
+                    </form>
+                    {#if od.priceCents == null}
+                      <div class="mt-1 text-xs text-muted">Not priced</div>
+                    {/if}
+                  {:else}
+                    <span class="text-muted">Customer's device</span>
+                  {/if}
+                </td>
+                <td>
+                  {#if od.role !== 'DONOR'}
+                    <form method="post" action="?/set_device_cost" class="inline">
+                      <input type="hidden" name="id" value={od.id} />
+                      <input type="hidden" name="include" value={od.includeDeviceCost ? 'false' : 'true'} />
+                      <button class="btn btn-secondary btn-sm">{od.includeDeviceCost ? 'Exclude cost' : 'Count cost here'}</button>
+                    </form>
+                  {/if}
                   <form method="post" action="?/remove_device" class="inline" onsubmit={(e) => { if (!confirm('Remove this device from the work order?')) { e.preventDefault(); } }}>
                     <input type="hidden" name="id" value={od.id} />
                     <button class="btn btn-danger btn-sm">Remove</button>
@@ -255,7 +375,7 @@
           </tbody>
         </table>
       </div>
-      <p class="hint">A device's purchase and other expenses count against one work order. When it comes back for another job, its cost stays on the original one. Cost a donor has passed to parts stock is charged where those parts are used instead.</p>
+      <p class="hint">A device's purchase and other expenses count against one work order. When it comes back for another job, its cost stays on the original one. A donor's cost is never counted on a work order: it is charged where the parts taken from it are used. Price is what the customer is charged for the device on this work order; leave it empty to charge nothing.</p>
     </div>
 
     <div class="card space-y-4 min-w-0">
@@ -308,7 +428,7 @@
       </form>
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th>Type</th><th>Details</th><th>Cost</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Type</th><th>Details</th><th>Cost</th><th>Price</th><th>Actions</th></tr></thead>
           <tbody>
             {#each w.items as it}
               <tr>
@@ -341,7 +461,51 @@
                       {/if}
                     {:else}-{/if}
                   {:else}
-                    {(it.amountCents || 0) > 0 ? `$${((it.amountCents||0)/100).toFixed(2)}` : '-'}
+                    -
+                  {/if}
+                </td>
+                <td>
+                  {#if it.type === 'PART' && it.partPrice}
+                    {@const pp = it.partPrice}
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <form method="post" action="?/set_item_price" class="flex items-center gap-1.5">
+                        <input type="hidden" name="id" value={it.id} />
+                        <input
+                          name="price"
+                          inputmode="decimal"
+                          autocomplete="off"
+                          aria-label={`Price each for ${it.part?.name ?? 'part'}`}
+                          class="input input-sm w-24"
+                          placeholder={pp.source === 'default' && !pp.needsManualPrice ? amountOf(pp.unitPriceCents) : '0.00'}
+                          value={pp.source === 'manual' ? amountOf(pp.unitPriceCents) : ''}
+                        />
+                        <span class="text-xs text-muted">each</span>
+                        <button class="btn btn-secondary btn-sm">Save</button>
+                      </form>
+                      {#if pp.source === 'manual'}
+                        <form method="post" action="?/clear_item_price">
+                          <input type="hidden" name="id" value={it.id} />
+                          <button class="btn btn-ghost btn-sm">Use default</button>
+                        </form>
+                      {/if}
+                    </div>
+                    <div class="mt-1 text-xs text-muted">
+                      {#if pp.source === 'unpriced'}
+                        Not priced
+                      {:else if pp.needsManualPrice}
+                        <Badge tone="accent">Needs a price</Badge> No cost to mark up
+                      {:else}
+                        {(it.quantity || 0) > 1 ? `${it.quantity} × ${formatUsd(pp.unitPriceCents)} = ` : ''}<span class="font-medium text-ink">{formatUsd(pp.priceCents)}</span>{#if pp.source === 'manual'}{pp.markupPercent !== null ? `, ${pp.markupPercent}%` : ''} (manual){:else}, {formatBps(pricing.markupBps ?? 0)} markup{/if}
+                      {/if}
+                    </div>
+                  {:else if it.type === 'LABOR'}
+                    <form method="post" action="?/set_item_price" class="flex items-center gap-1.5">
+                      <input type="hidden" name="id" value={it.id} />
+                      <input name="price" inputmode="decimal" autocomplete="off" placeholder="0.00" aria-label={`Price for ${it.description || 'labor'}`} class="input input-sm w-24" value={amountOf(it.amountCents || 0)} />
+                      <button class="btn btn-secondary btn-sm">Save</button>
+                    </form>
+                  {:else}
+                    -
                   {/if}
                 </td>
                 <td>

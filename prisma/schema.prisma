@@ -293,6 +293,13 @@ model WorkOrder {
   customer   Customer? @relation(fields: [customerId], references: [id])
   customerId String?
 
+  // Set by the first payment recorded against the work order, or by "Mark invoiced".
+  // From then on part lines use the markup stored here instead of the current setting.
+  // A work order invoiced before line prices existed has a date and no stored markup:
+  // its part lines stay unpriced unless a price is typed.
+  invoicedAt        DateTime?
+  invoicedMarkupBps Int?
+
   devices WorkOrderDevice[]
   items   WorkOrderItem[]
   incomes Income[]
@@ -318,7 +325,11 @@ model WorkOrderDevice {
   // Whether the device's own expenses (purchase etc.) count against this work order.
   // On for at most one work order per device, so a device that comes back as a
   // customer repair is not charged its purchase cost again.
+  // Always off for a DONOR row: a donor's cost comes back through the parts taken from it.
   includeDeviceCost Boolean @default(true)
+
+  // What the customer is charged for this device on this work order
+  priceCents Int?
 }
 
 model WorkOrderItem {
@@ -340,6 +351,8 @@ model WorkOrderItem {
 
   quantity Int? @default(0) // for PART
   unitCostCentsSnapshot Int? @default(0) // captured at consumption
+  // PART: customer price per unit typed by hand. Null follows the parts markup.
+  manualUnitPriceCents Int?
 
   // For LABOR or NOTE
   description String?
@@ -347,6 +360,16 @@ model WorkOrderItem {
 }
 
 
+
+// App-wide settings: a single row with id 1. Read through src/lib/server/settings.ts,
+// which falls back to the column defaults when the row has not been written yet.
+model Settings {
+  id        Int      @id @default(1)
+  updatedAt DateTime @updatedAt
+
+  // Default markup on parts, in basis points (3000 = 30%)
+  partsMarkupBps Int @default(3000)
+}
 
 enum PartInventoryMovementType {
   RECEIPT

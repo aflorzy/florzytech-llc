@@ -2,6 +2,8 @@ import type { Actions, PageServerLoad } from './$types';
 import { fail } from '@sveltejs/kit';
 import { prisma } from '$lib/server/prisma';
 import { loadHarvestedCents, unharvestedExpensesCents } from '$lib/server/device-financials';
+import { getPartsMarkupBps, loadReceivedCents, markWorkOrdersInvoiced } from '$lib/server/work-order-pricing';
+import { devicePriceApplies, parseUsdToCents, partLinePrice } from '$lib/pricing';
 import { WorkOrderItemType, WorkOrderDeviceRole, WorkOrderStatus, WorkOrderTargetAction, PartInventoryMovementType, type Prisma } from '@prisma/client';
 
 // Links that currently charge a device's cost to a live work order
@@ -121,6 +123,31 @@ export const load: PageServerLoad = async ({ params }) => {
 
   const profitCents = netRevenueCents - partsCostCents - deviceExpensesCents;
 
+  // Customer prices. Part lines follow the parts markup unless a price was typed: the
+  // current setting until the work order is invoiced, the stored one from then on. A work
+  // order invoiced before prices existed has no stored markup and its part lines stay unpriced.
+  const [settingMarkupBps, receivedCents] = await Promise.all([getPartsMarkupBps(), loadReceivedCents(id)]);
+  const invoicedAt = workOrder?.invoicedAt ?? null;
+  const markupBps = invoicedAt ? (workOrder?.invoicedMarkupBps ?? null) : settingMarkupBps;
+  const markupSource: 'setting' | 'invoice' | 'unpriced' = !invoicedAt ? 'setting' : markupBps === null ? 'unpriced' : 'invoice';
+  const items = (workOrder?.items || []).map((it) => {
+    const partPrice =
+      it.type === 'PART'
+        ? partLinePrice({ quantity: it.quantity, unitCostCents: it.unitCostCentsSnapshot, manualUnitPriceCents: it.manualUnitPriceCents, markupBps })
+        : null;
+    // Labor is charged at its amount; a note is never charged
+    const priceCents = partPrice ? partPrice.priceCents : it.type === 'LABOR' ? it.amountCents || 0 : null;
+    return { ...it, partPrice, priceCents };
+  });
+  const pricedLinks = links.map((od) => {
+    const priceApplies = devicePriceApplies(od.role, workOrder?.targetAction || '');
+    return { ...od, priceApplies, priceCents: priceApplies ? od.priceCents : null };
+  });
+  const partsPriceCents = items.reduce((s, it) => s + (it.partPrice?.priceCents || 0), 0);
+  const devicesPriceCents = pricedLinks.reduce((s, od) => s + (od.priceCents || 0), 0);
+  const invoiceTotalCents = partsPriceCents + laborPlannedCents + devicesPriceCents;
+  const totalCostCents = partsCostCents + deviceExpensesCents;
+
   const [customers, devices, parts] = await Promise.all([
     prisma.customer.findMany({ where: { archivedAt: null }, orderBy: { name: 'asc' } }),
     prisma.device.findMany({ where: { archivedAt: null }, orderBy: { createdAt: 'desc' }, take: 200 }),
@@ -129,7 +156,8 @@ export const load: PageServerLoad = async ({ params }) => {
   return {
     workOrder: workOrder && {
       ...workOrder,
-      devices: links.map((od) => ({
+      items,
+      devices: pricedLinks.map((od) => ({
         ...od,
         expensesCents: expensesCentsOf.get(od.deviceId) || 0,
         harvestedCents: harvestedCentsOf.get(od.deviceId) || 0,
@@ -140,6 +168,7 @@ export const load: PageServerLoad = async ({ params }) => {
     customers,
     devices,
     parts,
+    pricing: { markupBps, markupSource, settingMarkupBps, invoicedAt },
     summary: {
       partsCostCents,
       laborPlannedCents,
@@ -152,7 +181,20 @@ export const load: PageServerLoad = async ({ params }) => {
         netRevenueCents
       },
       deviceExpensesCents,
-      profitCents
+      profitCents,
+      // What the customer is charged, against what it cost and what has been paid
+      invoice: {
+        partsPriceCents,
+        laborPriceCents: laborPlannedCents,
+        devicesPriceCents,
+        invoiceTotalCents,
+        totalCostCents,
+        expectedProfitCents: invoiceTotalCents - totalCostCents,
+        receivedCents,
+        balanceDueCents: invoiceTotalCents - receivedCents,
+        // Part lines with no price yet: no cost to mark up, or invoiced before prices existed
+        unpricedPartLines: items.filter((it) => it.partPrice && (it.partPrice.needsManualPrice || it.partPrice.source === 'unpriced')).length
+      }
     }
   };
 };
@@ -186,10 +228,12 @@ export const actions: Actions = {
     const deviceId = String(form.get('deviceId') || '');
     if (!deviceId) return { success: false, error: 'Missing deviceId' };
     const roleStr = String(form.get('role') || 'PRIMARY') as keyof typeof WorkOrderDeviceRole;
-    // The device's cost stays on the work order that already carries it (e.g. the original sale)
+    const role = WorkOrderDeviceRole[roleStr];
+    // The device's cost stays on the work order that already carries it (e.g. the original sale).
+    // A donor's cost is never counted on a work order: it comes back through the parts taken from it.
     const alreadyCounted = await prisma.workOrderDevice.count({ where: { ...activeCostLink, deviceId } });
     await prisma.workOrderDevice.create({
-      data: { workOrderId: id, deviceId, role: WorkOrderDeviceRole[roleStr], includeDeviceCost: alreadyCounted === 0 }
+      data: { workOrderId: id, deviceId, role, includeDeviceCost: role !== WorkOrderDeviceRole.DONOR && alreadyCounted === 0 }
     });
     return { success: true };
   },
@@ -198,8 +242,9 @@ export const actions: Actions = {
     const id = String(form.get('id') || '');
     if (!id) return { success: false, error: 'Missing id' };
     const include = String(form.get('include') || '') === 'true';
-    const link = await prisma.workOrderDevice.findFirst({ where: { id, workOrderId: params.id }, select: { deviceId: true } });
+    const link = await prisma.workOrderDevice.findFirst({ where: { id, workOrderId: params.id }, select: { deviceId: true, role: true } });
     if (!link) return { success: false, error: 'Device is not on this work order' };
+    if (include && link.role === WorkOrderDeviceRole.DONOR) return fail(400, { error: 'A donor\'s cost is recouped through its parts and cannot be counted on a work order' });
     // Counting the cost here takes it off every other work order the device is on
     await prisma.$transaction([
       ...(include
@@ -207,6 +252,53 @@ export const actions: Actions = {
         : []),
       prisma.workOrderDevice.update({ where: { id }, data: { includeDeviceCost: include } })
     ]);
+    return { success: true };
+  },
+  set_device_price: async ({ request, params }) => {
+    const form = await request.formData();
+    const id = String(form.get('id') || '');
+    const link = id
+      ? await prisma.workOrderDevice.findFirst({ where: { id, workOrderId: params.id, archivedAt: null }, select: { role: true, workOrder: { select: { targetAction: true } } } })
+      : null;
+    if (!link) return fail(400, { error: 'Device is not on this work order' });
+    if (!devicePriceApplies(link.role, link.workOrder.targetAction)) return fail(400, { error: 'A customer\'s own device being returned has no price' });
+    // An empty value clears the price
+    const raw = String(form.get('price') ?? '').trim();
+    const priceCents = raw === '' ? null : parseUsdToCents(raw);
+    if (raw !== '' && priceCents === null) return fail(400, { error: 'Enter a price like 80 or 80.00' });
+    await prisma.workOrderDevice.update({ where: { id }, data: { priceCents } });
+    return { success: true };
+  },
+  // PART: a manual price per unit. LABOR: the amount charged.
+  set_item_price: async ({ request, params }) => {
+    const form = await request.formData();
+    const id = String(form.get('id') || '');
+    const item = id ? await prisma.workOrderItem.findFirst({ where: { id, workOrderId: params.id, archivedAt: null }, select: { type: true } }) : null;
+    if (!item || item.type === WorkOrderItemType.NOTE) return fail(400, { error: 'This line cannot be priced' });
+    const priceCents = parseUsdToCents(String(form.get('price') ?? ''));
+    if (priceCents === null) return fail(400, { error: 'Enter a price like 80 or 80.00' });
+    await prisma.workOrderItem.update({
+      where: { id },
+      data: item.type === WorkOrderItemType.PART ? { manualUnitPriceCents: priceCents } : { amountCents: priceCents }
+    });
+    return { success: true };
+  },
+  // "Use default": drop the manual price so the part line follows the markup again
+  clear_item_price: async ({ request, params }) => {
+    const form = await request.formData();
+    const id = String(form.get('id') || '');
+    const item = id ? await prisma.workOrderItem.findFirst({ where: { id, workOrderId: params.id, archivedAt: null }, select: { type: true } }) : null;
+    if (!item || item.type !== WorkOrderItemType.PART) return fail(400, { error: 'Only a part line has a default price' });
+    await prisma.workOrderItem.update({ where: { id }, data: { manualUnitPriceCents: null } });
+    return { success: true };
+  },
+  mark_invoiced: async ({ params }) => {
+    await prisma.$transaction((tx) => markWorkOrdersInvoiced(tx, [params.id]));
+    return { success: true };
+  },
+  // Deliberate undo: part lines on the default go back to the current markup setting
+  unmark_invoiced: async ({ params }) => {
+    await prisma.workOrder.update({ where: { id: params.id }, data: { invoicedAt: null, invoicedMarkupBps: null } });
     return { success: true };
   },
   remove_device: async ({ request }) => {

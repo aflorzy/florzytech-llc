@@ -81,8 +81,51 @@ export const figures: GuideFigure[] = [
       'Parts cost is each part item: quantity × the part cost at the moment it was added. Deleting the item puts the part back in stock and removes the cost.',
       'Device expenses are the expenses of each device on the work order whose "Device cost" is counted here, less anything received into parts stock or harvested.',
       'A device counts its cost on one work order only. The first work order it is added to gets it; "Count cost here" moves it and "Exclude cost" drops it.',
-      'Labor lines are what you plan to charge. They are not revenue and not a cost: revenue only appears when an income is recorded.',
+      'A device added with the role Donor never counts its cost on the work order. Its cost is charged through the parts harvested from it.',
+      'Prices on the lines are what you plan to charge. They are not revenue and not a cost: revenue only appears when an income is recorded. Setting or changing a price never changes this figure.',
       'If any Sale Builder sale is tied to the work order, only Sale Builder lines count as revenue and plain incomes on the same work order are ignored.'
+    ]
+  },
+  {
+    id: 'invoice-total',
+    name: 'Invoice total',
+    where: 'Work order page',
+    formula: 'Part prices + labor prices + device prices',
+    notes: [
+      'Part line: price each × quantity. The price each is the part cost at the moment it was added plus the parts markup, rounded to the cent (half a cent rounds up), unless a price was typed on the line. Example: a $15.00 part at 30% is $19.50 each, so two are $39.00.',
+      'A typed price is per unit and shows the markup it works out to, for example "$80.00, 433%" on a $15.00 part. It is negative when the price is below cost. "Use default" drops the typed price.',
+      'A part that cost $0 (for example one harvested from a free donor) has a default price of $0 and is marked "Needs a price".',
+      'Labor line: its amount, which can be changed in the Price column. Note lines are never charged.',
+      'Device line: the price typed for it. A Primary device on a "Return to customer" work order is the customer\'s own and has no price; Accessory and Donor rows can always have one. A device with no price typed adds nothing.',
+      'Archived lines and removed devices are left out.',
+      'It is a plan, not money: it does not move spending power, profit or any device net.'
+    ]
+  },
+  {
+    id: 'parts-markup',
+    name: 'Parts markup and "invoiced"',
+    where: 'Settings > Pricing, and the work order page',
+    formula: 'Not invoiced: the current default. Invoiced: the default on the day it was invoiced',
+    notes: [
+      'The default parts markup is one percentage under Settings > Pricing. It starts at 30%.',
+      'While a work order is not invoiced, its part lines on the default price follow the current setting, so changing the setting moves them.',
+      'A work order becomes invoiced when the first income is recorded against it (Add Income, an income edited to point at it, or a Sale Builder sale, even for $0) or when "Mark invoiced" is clicked, whichever comes first. The markup at that moment is stored on the work order and used from then on, including for parts added later.',
+      'Once invoiced it stays invoiced: later payments change nothing, and archiving or moving the payment does not undo it. "Undo invoiced" is the only way back, and puts the default-priced parts on the current setting again.',
+      'Typed prices are never changed by the setting, invoiced or not.',
+      'Work orders that were already Delivered, Cancelled or paid when line prices were introduced count as invoiced with no markup: their parts show "Not priced" unless a price is typed.'
+    ]
+  },
+  {
+    id: 'expected-profit',
+    name: 'Expected profit, received and balance due',
+    where: 'Work order page',
+    formula: 'Expected profit = invoice total − total cost. Balance due = invoice total − received',
+    notes: [
+      'Total cost is the same parts cost and device expenses used for work order profit.',
+      'Received is the amount on every income tied to the work order, before fees, shipping and tax. Archived incomes are left out.',
+      'A Sale Builder sale counts through its lines, so a line pointed at another work order is received there. Plain incomes and Sale Builder sales on the same work order both count here.',
+      'Balance due is negative when more was received than the invoice total.',
+      'Expected profit is what the job makes if the invoice is paid in full with no fees. Work order profit is what it has made so far from the incomes actually recorded.'
     ]
   }
 ];
@@ -98,13 +141,15 @@ export const scenarios: GuideScenario[] = [
       { where: 'Work Orders', href: '/work-orders', action: 'New Work Order with Target Action "Sell".' },
       { where: 'Work order', action: 'Under Devices, add the device as Primary. Its cost is counted on this work order.' },
       { where: 'Work order', action: 'Under Items, add each Part used (it must be in stock) and pick the device. Add Labor or Note lines if useful.' },
-      { where: 'Income', href: '/income', action: 'When it sells: Add Income, type Sale, with the amount, fees and shipping. Pick both the Device and the Work Order.' },
+      { where: 'Work order', action: 'Type the sale price in the device\'s Price column. Parts fitted are priced too and add to the invoice total; type $0 on a part that is included in the device price.' },
+      { where: 'Income', href: '/income', action: 'When it sells: Add Income, type Sale, with the amount, fees and shipping. Pick both the Device and the Work Order. This marks the work order invoiced.' },
       { where: 'Devices and Work Orders', action: 'Set the device status to Sold and the work order status to Delivered. Neither changes on its own.' }
     ],
     numbers: [
       'Spending power drops when the purchase and any parts are bought, and rises when the sale is recorded.',
       'Work order profit = sale (net of fees and shipping cost) − parts used − the device\'s purchase and other expenses.',
-      'Device net shows the same result, because the income, the expenses and the parts all point at the device.'
+      'Device net shows the same result, because the income, the expenses and the parts all point at the device.',
+      'Invoice total is the device price plus part and labor prices; balance due drops to $0 once incomes for that amount are recorded.'
     ],
     watchOut: [
       'Pick both the Device and the Work Order on the income. With only the work order, the device shows a loss; with only the device, the work order shows no revenue.'
@@ -129,14 +174,16 @@ export const scenarios: GuideScenario[] = [
       { where: 'Customers', href: '/customers', action: 'Add the customer if they are new.' },
       { where: 'Devices', href: '/devices', action: 'Add Device for the customer\'s device. Do not record a purchase expense.' },
       { where: 'Work Orders', href: '/work-orders', action: 'New Work Order with Target Action "Return to customer" and the customer picked.' },
-      { where: 'Work order', action: 'Add the device as Primary. Add Part items for what you fit and Labor lines for what you will charge.' },
-      { where: 'Income', href: '/income', action: 'When paid: Add Income, type Service, for the amount received. Pick the Work Order, the Device and the Customer.' },
+      { where: 'Work order', action: 'Add the device as Primary. It is the customer\'s device, so it has no price. Add Part items for what you fit and Labor lines for what you will charge.' },
+      { where: 'Work order', action: 'Check the Price column. Each part is priced at cost plus the parts markup; type a price each to override it, or change a labor amount.' },
+      { where: 'Income', href: '/income', action: 'When paid: Add Income, type Service, for the amount received. Pick the Work Order, the Device and the Customer. The first payment marks the work order invoiced.' },
       { where: 'Work Orders', href: '/work-orders', action: 'Set the work order status to Delivered.' }
     ],
     numbers: [
-      'Work order profit = amount received (net) − cost of the parts used.',
-      'The amount you charge is whatever you put on the income. Parts are charged to the work order at cost; any markup is simply the difference.',
-      'A second payment is another income on the same work order. They add up.'
+      'Invoice total = part prices + labor. Expected profit = invoice total − cost of the parts used.',
+      'Work order profit = amount received (net) − cost of the parts used. The work order is charged parts at cost; the markup shows up as profit.',
+      'What counts as money is still whatever you put on the income. The invoice total is what you plan to charge, and balance due is the difference.',
+      'A second payment is another income on the same work order. They add up under Received.'
     ],
     watchOut: ['With several devices on one work order, pick the device on each Part item. A part with no device on a work order with several devices is charged to the work order but to no device.']
   },
@@ -163,7 +210,7 @@ export const scenarios: GuideScenario[] = [
       { where: 'Devices', href: '/devices', action: 'Add Device, then edit it and set the status to Donor.' },
       { where: 'Expenses', href: '/expenses', action: 'Add Expense for what you paid, with the donor picked. Skip this for a free donor.' },
       { where: 'Donor\'s device page', action: 'Under Harvested Parts, add each part you pull: pick or name the part, a quantity, and a value each. The value is the share of the donor\'s cost that part carries. Use $0 for a free donor.' },
-      { where: 'Work order', action: 'On the job the part goes into, add it under Items as a Part, like any other part.' },
+      { where: 'Work order', action: 'On the job the part goes into, add it under Items as a Part, like any other part. A part harvested at $0 shows "Needs a price": type what you charge for it.' },
       { where: 'Income', href: '/income', action: 'Record the payment for that job as usual.' }
     ],
     numbers: [
@@ -173,7 +220,8 @@ export const scenarios: GuideScenario[] = [
       'Example: a $100 donor with $60 of parts harvested shows a net of −$40.'
     ],
     watchOut: [
-      'Do not also add the donor as a device on the work order. That charges the donor\'s remaining cost to that one job, on top of the parts. If you do add it, click "Exclude cost".',
+      'Adding the donor as a device on a work order with the role Donor is optional. Its cost is never counted there ("Recouped through its parts") and there is no "Count cost here" on that row. Its Price is for anything you charge for what was taken from it.',
+      'Pick the role Donor when adding it. Added as Primary or Accessory, the donor\'s remaining cost is charged to that one job on top of the parts.',
       'The values harvested from a donor cannot add up to more than its expenses.',
       'A harvest can be undone on the donor\'s page until its parts are used. After that, delete the part from the work order first.',
       'Only a device with the status Donor can be harvested.'
@@ -185,7 +233,7 @@ export const scenarios: GuideScenario[] = [
     when: 'A controller, cable or similar goes out with another sale.',
     steps: [
       { where: 'Devices', href: '/devices', action: 'Add Device for the accessory, and an Expense with it picked if you paid for it.' },
-      { where: 'Work order', action: 'On the sale\'s work order, add the accessory under Devices with the role Accessory.' },
+      { where: 'Work order', action: 'On the sale\'s work order, add the accessory under Devices with the role Accessory, and type what you charge for it under Price.' },
       { where: 'Income', href: '/income', action: 'Record the sale. One income holds one device, so to credit the accessory, record two incomes on the same work order: one with the main device, one with the accessory.' }
     ],
     numbers: [
@@ -224,7 +272,7 @@ export const scenarios: GuideScenario[] = [
       { where: 'Add Income', action: 'Pick the Work Order if it was for a job, and the Device it was for. Either, both or neither is allowed.' }
     ],
     numbers: [
-      'Work Order picked: counts as that work order\'s revenue.',
+      'Work Order picked: counts as that work order\'s revenue and under its Received. If it is the first payment against the work order, the work order becomes invoiced.',
       'Device picked: counts toward that device\'s net.',
       'Neither picked: counts in spending power only.'
     ],
@@ -242,13 +290,15 @@ export const scenarios: GuideScenario[] = [
       { where: 'Income or Expenses', action: 'Edit the row, or archive it. An archived row drops out of every figure.' },
       { where: 'Work order', action: 'Delete a Part item to put the part back in stock and remove its cost.' },
       { where: 'Work order', action: 'Remove a device, or use "Exclude cost" / "Count cost here" to change which work order carries its cost.' },
+      { where: 'Work order', action: 'Retype a price and Save, or click "Use default" on a part. "Undo invoiced" releases the stored markup.' },
       { where: 'Donor\'s device page', action: 'Undo a harvest to take the parts back out of stock and put the cost back on the donor.' },
       { where: 'Parts', href: '/parts', action: 'Use the + and − buttons to correct a stock count.' }
     ],
     numbers: ['Nothing is deleted outright. Devices, parts, customers, work orders, incomes and expenses are archived and hidden.'],
     watchOut: [
       'Archiving an expense that received parts into stock does not take those parts back out. Correct the quantity on the Parts page.',
-      'The + and − buttons on Parts change the count only. They record no cost and no expense.'
+      'The + and − buttons on Parts change the count only. They record no cost and no expense.',
+      'Archiving or moving an income does not undo "invoiced" on its work order. Use "Undo invoiced" if it should follow the current markup again.'
     ]
   }
 ];

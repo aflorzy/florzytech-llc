@@ -1,6 +1,7 @@
 import type { RequestHandler } from './$types';
 import { prisma } from '$lib/server/prisma';
 import { IncomeType, IncomeLineType, DeviceStatus, PartInventoryMovementType } from '@prisma/client';
+import { markWorkOrdersInvoiced } from '$lib/server/work-order-pricing';
 
 export const POST: RequestHandler = async ({ request }) => {
   const ct = request.headers.get('content-type') || '';
@@ -126,6 +127,9 @@ export const POST: RequestHandler = async ({ request }) => {
           });
         }
       }
+
+      // The first payment against a work order marks it invoiced
+      await markWorkOrdersInvoiced(tx, [body.workOrderId, ...lines.map((ln) => ln.workOrderId)]);
 
       return income;
     });

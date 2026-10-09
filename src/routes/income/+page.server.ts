@@ -1,6 +1,7 @@
 import type { Actions, PageServerLoad } from './$types';
 import { prisma } from '$lib/server/prisma';
 import { IncomeType, IncomeLineType, DeviceStatus, PartInventoryMovementType } from '@prisma/client';
+import { markWorkOrdersInvoiced } from '$lib/server/work-order-pricing';
 
 function toCents(v: FormDataEntryValue | null) {
   const n = typeof v === 'string' ? parseFloat(v) : 0;
@@ -172,6 +173,9 @@ export const actions: Actions = {
         }
       }
 
+      // The first payment against a work order marks it invoiced
+      await markWorkOrdersInvoiced(tx, [body.workOrderId, ...lines.map((ln) => ln.workOrderId)]);
+
       return income;
     });
 
@@ -194,23 +198,27 @@ export const actions: Actions = {
     const customerId = String(form.get('customerId') || '') || null;
     const workOrderId = String(form.get('workOrderId') || '') || null;
 
-    await prisma.income.create({
-      data: {
-        type: IncomeType[typeStr],
-        date,
-        amountCents,
-        deviceId,
-        channelId,
-        categoryId,
-        platformFeesCents,
-        paymentFeesCents,
-        shippingRevenueCents,
-        shippingCostCents,
-        taxCollectedCents,
-        notes,
-        customerId,
-        workOrderId
-      }
+    await prisma.$transaction(async (tx) => {
+      await tx.income.create({
+        data: {
+          type: IncomeType[typeStr],
+          date,
+          amountCents,
+          deviceId,
+          channelId,
+          categoryId,
+          platformFeesCents,
+          paymentFeesCents,
+          shippingRevenueCents,
+          shippingCostCents,
+          taxCollectedCents,
+          notes,
+          customerId,
+          workOrderId
+        }
+      });
+      // The first payment against a work order marks it invoiced
+      await markWorkOrdersInvoiced(tx, [workOrderId]);
     });
     return { success: true };
   },
@@ -234,24 +242,30 @@ export const actions: Actions = {
     const customerId = String(form.get('customerId') || '') || null;
     const workOrderId = String(form.get('workOrderId') || '') || null;
 
-    await prisma.income.update({
-      where: { id },
-      data: {
-        type: IncomeType[typeStr],
-        date,
-        amountCents,
-        deviceId,
-        channelId,
-        categoryId,
-        platformFeesCents,
-        paymentFeesCents,
-        shippingRevenueCents,
-        shippingCostCents,
-        taxCollectedCents,
-        notes,
-        customerId,
-        workOrderId
-      }
+    await prisma.$transaction(async (tx) => {
+      const previous = await tx.income.findUnique({ where: { id }, select: { workOrderId: true } });
+      await tx.income.update({
+        where: { id },
+        data: {
+          type: IncomeType[typeStr],
+          date,
+          amountCents,
+          deviceId,
+          channelId,
+          categoryId,
+          platformFeesCents,
+          paymentFeesCents,
+          shippingRevenueCents,
+          shippingCostCents,
+          taxCollectedCents,
+          notes,
+          customerId,
+          workOrderId
+        }
+      });
+      // Pointing an income at a work order is a payment against it and marks it invoiced.
+      // Editing an income that was already on the work order is not a new payment.
+      if (workOrderId !== (previous?.workOrderId ?? null)) await markWorkOrdersInvoiced(tx, [workOrderId]);
     });
 
     return { success: true, id };

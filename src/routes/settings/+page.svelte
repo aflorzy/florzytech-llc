@@ -5,6 +5,7 @@
   const links: { href: string; title: string; description: string; icon: IconName }[] = [
     { href: '/settings/vendors', title: 'Vendors', description: 'Where you buy devices, parts and supplies.', icon: 'vendor' },
     { href: '/settings/categories', title: 'Categories', description: 'Expense and income categories used for reporting.', icon: 'list' },
+    { href: '/settings/pricing', title: 'Pricing', description: 'Default markup on parts used on work orders.', icon: 'percent' },
     { href: '/customers', title: 'Customers', description: 'People you repair for or sell to.', icon: 'customers' },
     { href: '/work-orders', title: 'Work orders', description: 'Repair jobs and what went into them.', icon: 'workorder' }
   ];

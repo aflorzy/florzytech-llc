@@ -64,3 +64,20 @@ export async function disconnectDb() {
     prisma = null;
   }
 }
+
+// The data-changing statements (UPDATE/INSERT) of a migration, so a test can replay them
+// against rows that look like data from before the migration.
+export async function migrationDataStatements(migrationName: string): Promise<string[]> {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const file = path.join(process.cwd(), 'prisma', 'migrations', migrationName, 'migration.sql');
+  const sql = fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n');
+  return sql
+    .split(/;\s*(?:\n|$)/)
+    .map((s) => s.trim())
+    .filter((s) => /^(UPDATE|INSERT)\b/i.test(s));
+}

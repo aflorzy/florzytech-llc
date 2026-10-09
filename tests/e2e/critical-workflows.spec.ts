@@ -228,3 +228,82 @@ test('Sale Builder sells several devices in one income and credits each device',
   await page.goto('/');
   await expect(page.getByTestId('dashboard-spending-power')).toHaveText('$537.00');
 });
+
+// Issue #21: prices on work order lines, the parts markup and "invoiced"
+test('work order line prices follow the parts markup until invoiced and never move spending power', async ({ page }) => {
+  page.on('dialog', (dialog) => dialog.accept());
+
+  // 1) Default parts markup: 50%
+  await page.goto('/settings');
+  await page.getByRole('link', { name: /Pricing/ }).click();
+  await expect(page.getByLabel('Default parts markup (%)')).toHaveValue('30');
+  await page.waitForLoadState('networkidle');
+  await page.getByLabel('Default parts markup (%)').fill('50');
+  await submitAndWait(page, page.getByRole('button', { name: 'Save' }));
+  await expect(page.getByRole('status')).toHaveText('Saved.');
+
+  // 2) A part in stock at $15.00
+  await page.goto('/parts');
+  await openCollapsibleForm(page, page.getByRole('button', { name: 'Add Part' }), page.getByLabel('Name'));
+  await page.getByLabel('Name').fill('PW Screen');
+  await page.getByLabel('Quantity').fill('5');
+  await page.getByLabel('Unit Cost (USD, optional)').fill('15.00');
+  await submitAndWait(page, page.getByRole('button', { name: 'Save Part' }));
+
+  // 3) Work order with two of the part: 2 x $22.50
+  await page.goto('/work-orders');
+  await openCollapsibleForm(page, page.getByTestId('work-orders-toggle-form'), page.getByLabel('Target Action'));
+  const note = 'PW priced work order';
+  await page.getByLabel('Notes').fill(note);
+  await submitAndWait(page, page.getByTestId('work-orders-create-work-order'));
+  await page.locator('tbody tr', { hasText: note }).first().getByRole('link', { name: /^WO-/ }).click();
+  await expect(page.getByText('Not invoiced', { exact: true })).toBeVisible();
+
+  const itemForm = page.locator('form[action="?/add_item"]');
+  await itemForm.locator('select[name="type"]').selectOption('PART');
+  await itemForm.locator('select[name="partId"]').selectOption({ label: 'PW Screen' });
+  await itemForm.locator('input[name="quantity"]').fill('2');
+  await submitAndWait(page, itemForm.getByRole('button', { name: 'Add Part' }));
+
+  const total = page.getByTestId('wo-invoice-total');
+  const partRow = page.locator('tbody tr', { hasText: 'PW Screen' }).first();
+  await expect(total).toHaveText('$45.00');
+  await expect(page.getByTestId('wo-expected-profit')).toHaveText('$15.00');
+  await expect(page.getByTestId('wo-balance-due')).toHaveText('$45.00');
+  await expect(partRow).toContainText('2 × $22.50 = $45.00, 50% markup');
+
+  // 4) Manual price, then back to the default
+  await partRow.getByLabel('Price each for PW Screen').fill('80');
+  await submitAndWait(page, partRow.getByRole('button', { name: 'Save' }));
+  await expect(total).toHaveText('$160.00');
+  await expect(partRow).toContainText('2 × $80.00 = $160.00, 433% (manual)');
+  await submitAndWait(page, partRow.getByRole('button', { name: 'Use default' }));
+  await expect(total).toHaveText('$45.00');
+
+  // 5) A bad price is refused with a message
+  await partRow.getByLabel('Price each for PW Screen').fill('abc');
+  await submitAndWait(page, partRow.getByRole('button', { name: 'Save' }));
+  await expect(page.getByRole('alert')).toContainText('Enter a price');
+  await expect(total).toHaveText('$45.00');
+
+  // 6) Invoiced: the work order keeps 50% when the default changes
+  const workOrderUrl = page.url().split('?')[0];
+  await page.goto(workOrderUrl);
+  await submitAndWait(page, page.getByRole('button', { name: 'Mark invoiced' }));
+  await expect(page.getByText(/^Invoiced \d/)).toBeVisible();
+  await page.goto('/settings/pricing');
+  await page.waitForLoadState('networkidle');
+  await page.getByLabel('Default parts markup (%)').fill('10');
+  await submitAndWait(page, page.getByRole('button', { name: 'Save' }));
+  await page.goto(workOrderUrl);
+  await expect(total).toHaveText('$45.00');
+
+  // 7) Undo: back on the current default, 2 x $16.50
+  await submitAndWait(page, page.getByRole('button', { name: 'Undo invoiced' }));
+  await expect(page.getByText('Not invoiced', { exact: true })).toBeVisible();
+  await expect(total).toHaveText('$33.00');
+
+  // 8) No money moved. Seed baseline: 137.00
+  await page.goto('/');
+  await expect(page.getByTestId('dashboard-spending-power')).toHaveText('$137.00');
+});

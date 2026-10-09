@@ -50,21 +50,23 @@ export async function loadPartsUsed(deviceIds: string[]) {
   });
 }
 
+const workOrderRef = { select: { id: true, code: true } };
+
 // Income recorded for one device: plain incomes linked on the head, plus the device's own
 // lines (with their allocated fees) from Sale Builder sales.
 export async function loadDeviceIncomes(deviceId: string) {
   const [heads, lines] = await Promise.all([
     prisma.income.findMany({
       where: { deviceId, archivedAt: null, ...withoutDeviceLines },
-      include: { channel: true, category: true }
+      include: { channel: true, category: true, workOrder: workOrderRef }
     }),
     prisma.incomeLine.findMany({
       where: { deviceId, archivedAt: null, income: { archivedAt: null } },
-      include: { income: { include: { channel: true, category: true } } }
+      include: { workOrder: workOrderRef, income: { include: { channel: true, category: true, workOrder: workOrderRef } } }
     })
   ]);
 
-  type Row = { id: string; date: Date; notes: string | null; channel: { name: string } | null; category: { name: string } | null; amountCents: number; feesCents: number; shippingNetCents: number };
+  type Row = { id: string; date: Date; notes: string | null; channel: { name: string } | null; category: { name: string } | null; workOrder: { id: string; code: string } | null; amountCents: number; feesCents: number; shippingNetCents: number };
   const rows = new Map<string, Row>();
   for (const h of heads) {
     rows.set(h.id, {
@@ -73,6 +75,7 @@ export async function loadDeviceIncomes(deviceId: string) {
       notes: h.notes,
       channel: h.channel,
       category: h.category,
+      workOrder: h.workOrder,
       amountCents: h.amountCents,
       feesCents: h.platformFeesCents + h.paymentFeesCents,
       shippingNetCents: h.shippingRevenueCents - h.shippingCostCents
@@ -80,7 +83,7 @@ export async function loadDeviceIncomes(deviceId: string) {
   }
   for (const ln of lines) {
     const h = ln.income;
-    const row = rows.get(h.id) ?? { id: h.id, date: h.date, notes: h.notes, channel: h.channel, category: h.category, amountCents: 0, feesCents: 0, shippingNetCents: 0 };
+    const row = rows.get(h.id) ?? { id: h.id, date: h.date, notes: h.notes, channel: h.channel, category: h.category, workOrder: ln.workOrder ?? h.workOrder, amountCents: 0, feesCents: 0, shippingNetCents: 0 };
     row.amountCents += ln.amountCents;
     row.feesCents += ln.allocatedPlatformFeesCents + ln.allocatedPaymentFeesCents;
     row.shippingNetCents += ln.allocatedShippingRevenueCents - ln.allocatedShippingCostCents;

@@ -10,7 +10,7 @@
   type Customer = { id: string; name: string };
   type Device = { id: string; sku: string; make: string; model: string };
   type Part = { id: string; name: string; averageCostCents?: number | null; unitCostCents?: number | null };
-  type WorkOrderDevice = { id: string; role: string; device: Device };
+  type WorkOrderDevice = { id: string; role: string; device: Device; includeDeviceCost: boolean; expensesCents: number; costCountedOn: { id: string; code: string } | null };
   type WorkOrderItem = {
     id: string;
     type: 'LABOR' | 'NOTE' | 'PART';
@@ -220,13 +220,28 @@
       </form>
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th>Device</th><th>Role</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Device</th><th>Role</th><th>Device cost</th><th>Actions</th></tr></thead>
           <tbody>
             {#each w.devices as od}
               <tr>
                 <td><SkuTag code={od.device.sku} href={`/devices/${od.device.id}`} /> <span class="text-muted">{od.device.make} {od.device.model}</span></td>
                 <td><StatusBadge status={od.role} /></td>
                 <td>
+                  {#if od.includeDeviceCost}
+                    {formatUsd(od.expensesCents)}
+                  {:else}
+                    <span class="text-muted">Not counted</span>
+                    {#if od.costCountedOn}
+                      <div class="text-xs text-muted">Counted on <a class="link" href={`/work-orders/${od.costCountedOn.id}`}>{od.costCountedOn.code}</a></div>
+                    {/if}
+                  {/if}
+                </td>
+                <td>
+                  <form method="post" action="?/set_device_cost" class="inline">
+                    <input type="hidden" name="id" value={od.id} />
+                    <input type="hidden" name="include" value={od.includeDeviceCost ? 'false' : 'true'} />
+                    <button class="btn btn-secondary btn-sm">{od.includeDeviceCost ? 'Exclude cost' : 'Count cost here'}</button>
+                  </form>
                   <form method="post" action="?/remove_device" class="inline" onsubmit={(e) => { if (!confirm('Remove this device from the work order?')) { e.preventDefault(); } }}>
                     <input type="hidden" name="id" value={od.id} />
                     <button class="btn btn-danger btn-sm">Remove</button>
@@ -237,6 +252,7 @@
           </tbody>
         </table>
       </div>
+      <p class="hint">A device's purchase and other expenses count against one work order. When it comes back for another job, its cost stays on the original one.</p>
     </div>
 
     <div class="card space-y-4 min-w-0">

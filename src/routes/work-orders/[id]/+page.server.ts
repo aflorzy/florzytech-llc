@@ -1,7 +1,10 @@
 import type { Actions, PageServerLoad } from './$types';
 import { fail } from '@sveltejs/kit';
 import { prisma } from '$lib/server/prisma';
-import { WorkOrderItemType, WorkOrderDeviceRole, WorkOrderStatus, WorkOrderTargetAction, PartInventoryMovementType } from '@prisma/client';
+import { WorkOrderItemType, WorkOrderDeviceRole, WorkOrderStatus, WorkOrderTargetAction, PartInventoryMovementType, type Prisma } from '@prisma/client';
+
+// Links that currently charge a device's cost to a live work order
+const activeCostLink: Prisma.WorkOrderDeviceWhereInput = { includeDeviceCost: true, archivedAt: null, workOrder: { archivedAt: null } };
 
 export const load: PageServerLoad = async ({ params }) => {
   const id = params.id;
@@ -87,14 +90,29 @@ export const load: PageServerLoad = async ({ params }) => {
 
   // Device-linked expenses: non-archived expenses linked to devices in this WO.
   // Expenses received into parts inventory are left out; their cost is charged when the part is consumed.
-  const deviceIds = (workOrder?.devices || []).map((od) => od.device.id);
-  const deviceExpenses = deviceIds.length > 0
-    ? await prisma.expense.findMany({
-        where: { archivedAt: null, deviceId: { in: deviceIds }, partMovements: { none: { type: PartInventoryMovementType.RECEIPT, archivedAt: null } } },
-        select: { amountCents: true }
-      })
-    : [];
-  const deviceExpensesCents = deviceExpenses.reduce((s, e) => s + (e.amountCents || 0), 0);
+  // Only devices whose cost is included here count; a device on several work orders is charged on one.
+  const links = workOrder?.devices || [];
+  const deviceIds = [...new Set(links.map((od) => od.deviceId))];
+  const excludedIds = [...new Set(links.filter((od) => !od.includeDeviceCost).map((od) => od.deviceId))];
+  const [expensesByDevice, costCarriers] = await Promise.all([
+    deviceIds.length > 0
+      ? prisma.expense.groupBy({
+          by: ['deviceId'],
+          where: { archivedAt: null, deviceId: { in: deviceIds }, partMovements: { none: { type: PartInventoryMovementType.RECEIPT, archivedAt: null } } },
+          _sum: { amountCents: true }
+        })
+      : [],
+    excludedIds.length > 0
+      ? prisma.workOrderDevice.findMany({
+          where: { ...activeCostLink, deviceId: { in: excludedIds }, workOrderId: { not: id } },
+          select: { deviceId: true, workOrder: { select: { id: true, code: true } } }
+        })
+      : []
+  ]);
+  const expensesCentsOf = new Map(expensesByDevice.map((g) => [g.deviceId, g._sum.amountCents || 0]));
+  const carrierOf = new Map(costCarriers.map((c) => [c.deviceId, c.workOrder]));
+  const includedIds = new Set(links.filter((od) => od.includeDeviceCost).map((od) => od.deviceId));
+  const deviceExpensesCents = [...includedIds].reduce((s, deviceId) => s + (expensesCentsOf.get(deviceId) || 0), 0);
 
   const profitCents = netRevenueCents - partsCostCents - deviceExpensesCents;
 
@@ -104,7 +122,15 @@ export const load: PageServerLoad = async ({ params }) => {
     prisma.part.findMany({ where: { archivedAt: null }, orderBy: { name: 'asc' }, take: 500 })
   ]);
   return {
-    workOrder,
+    workOrder: workOrder && {
+      ...workOrder,
+      devices: links.map((od) => ({
+        ...od,
+        expensesCents: expensesCentsOf.get(od.deviceId) || 0,
+        // Where the device's cost is counted instead, when it is not counted here
+        costCountedOn: od.includeDeviceCost ? null : carrierOf.get(od.deviceId) || null
+      }))
+    },
     customers,
     devices,
     parts,
@@ -154,7 +180,27 @@ export const actions: Actions = {
     const deviceId = String(form.get('deviceId') || '');
     if (!deviceId) return { success: false, error: 'Missing deviceId' };
     const roleStr = String(form.get('role') || 'PRIMARY') as keyof typeof WorkOrderDeviceRole;
-    await prisma.workOrderDevice.create({ data: { workOrderId: id, deviceId, role: WorkOrderDeviceRole[roleStr] } });
+    // The device's cost stays on the work order that already carries it (e.g. the original sale)
+    const alreadyCounted = await prisma.workOrderDevice.count({ where: { ...activeCostLink, deviceId } });
+    await prisma.workOrderDevice.create({
+      data: { workOrderId: id, deviceId, role: WorkOrderDeviceRole[roleStr], includeDeviceCost: alreadyCounted === 0 }
+    });
+    return { success: true };
+  },
+  set_device_cost: async ({ request, params }) => {
+    const form = await request.formData();
+    const id = String(form.get('id') || '');
+    if (!id) return { success: false, error: 'Missing id' };
+    const include = String(form.get('include') || '') === 'true';
+    const link = await prisma.workOrderDevice.findFirst({ where: { id, workOrderId: params.id }, select: { deviceId: true } });
+    if (!link) return { success: false, error: 'Device is not on this work order' };
+    // Counting the cost here takes it off every other work order the device is on
+    await prisma.$transaction([
+      ...(include
+        ? [prisma.workOrderDevice.updateMany({ where: { deviceId: link.deviceId, id: { not: id }, includeDeviceCost: true }, data: { includeDeviceCost: false } })]
+        : []),
+      prisma.workOrderDevice.update({ where: { id }, data: { includeDeviceCost: include } })
+    ]);
     return { success: true };
   },
   remove_device: async ({ request }) => {

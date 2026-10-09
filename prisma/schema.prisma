@@ -313,6 +313,11 @@ model WorkOrderDevice {
   deviceId String
 
   role WorkOrderDeviceRole @default(PRIMARY)
+
+  // Whether the device's own expenses (purchase etc.) count against this work order.
+  // On for at most one work order per device, so a device that comes back as a
+  // customer repair is not charged its purchase cost again.
+  includeDeviceCost Boolean @default(true)
 }
 
 model WorkOrderItem {

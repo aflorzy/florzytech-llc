@@ -164,6 +164,7 @@ model Device {
   workOrderDevices WorkOrderDevice[]
   workOrderItems   WorkOrderItem[]
   incomeLines      IncomeLine[]
+  harvestedParts   PartInventoryMovement[]
 }
 
 model Vendor {
@@ -376,6 +377,11 @@ model PartInventoryMovement {
 
   expense   Expense? @relation(fields: [expenseId], references: [id])
   expenseId String?
+
+  // Donor device the parts were pulled from (RECEIPT only). The movement's cost is
+  // taken off the donor and carried by the parts stock instead.
+  sourceDevice   Device? @relation(fields: [sourceDeviceId], references: [id])
+  sourceDeviceId String?
 
   notes String?
 }

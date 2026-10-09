@@ -12,6 +12,9 @@ export type DeviceFinancials = {
   stockedExpensesCents: number;
   // Parts consumed for the device on work orders (snapshot cost * quantity)
   partsConsumedCents: number;
+  // Cost moved into parts stock by harvesting parts from the device (donors); charged
+  // through partsConsumedCents of whichever device the parts end up in
+  harvestedCents: number;
   netCents: number;
 };
 
@@ -20,7 +23,23 @@ const withoutDeviceLines: Prisma.IncomeWhereInput = { lines: { none: { archivedA
 const stockReceipt: Prisma.PartInventoryMovementWhereInput = { type: PartInventoryMovementType.RECEIPT, archivedAt: null };
 
 function emptyFinancials(): DeviceFinancials {
-  return { incomeCents: 0, feesCents: 0, shippingNetCents: 0, taxCollectedCents: 0, expensesCents: 0, stockedExpensesCents: 0, partsConsumedCents: 0, netCents: 0 };
+  return { incomeCents: 0, feesCents: 0, shippingNetCents: 0, taxCollectedCents: 0, expensesCents: 0, stockedExpensesCents: 0, partsConsumedCents: 0, harvestedCents: 0, netCents: 0 };
+}
+
+// Value of the parts harvested from each device into stock
+export async function loadHarvestedCents(deviceIds: string[]): Promise<Map<string, number>> {
+  if (deviceIds.length === 0) return new Map();
+  const groups = await prisma.partInventoryMovement.groupBy({
+    by: ['sourceDeviceId'],
+    where: { ...stockReceipt, sourceDeviceId: { in: deviceIds } },
+    _sum: { totalCostCents: true }
+  });
+  return new Map(groups.flatMap((g) => (g.sourceDeviceId ? [[g.sourceDeviceId, g._sum.totalCostCents || 0] as const] : [])));
+}
+
+// What is left of a device's expenses once the value harvested into parts stock is taken off
+export function unharvestedExpensesCents(expensesCents: number, harvestedCents: number): number {
+  return Math.max(0, expensesCents - harvestedCents);
 }
 
 // PART items charged to the given devices: the item's own device, or the work order's device
@@ -97,7 +116,7 @@ export async function loadDeviceFinancials(deviceIds: string[]): Promise<Map<str
   if (deviceIds.length === 0) return out;
 
   const expenseWhere = { deviceId: { in: deviceIds }, archivedAt: null };
-  const [expenses, stockedExpenses, incomeHeads, incomeLines, partsUsed] = await Promise.all([
+  const [expenses, stockedExpenses, incomeHeads, incomeLines, partsUsed, harvested] = await Promise.all([
     prisma.expense.groupBy({
       by: ['deviceId'],
       where: { ...expenseWhere, partMovements: { none: stockReceipt } },
@@ -125,7 +144,8 @@ export async function loadDeviceFinancials(deviceIds: string[]): Promise<Map<str
         allocatedTaxCents: true
       }
     }),
-    loadPartsUsed(deviceIds)
+    loadPartsUsed(deviceIds),
+    loadHarvestedCents(deviceIds)
   ]);
 
   const entry = (id: string | null) => (id ? out.get(id) : undefined);
@@ -157,9 +177,13 @@ export async function loadDeviceFinancials(deviceIds: string[]): Promise<Map<str
     const f = entry(item.chargedDeviceId);
     if (f) f.partsConsumedCents += item.totalCostCents;
   }
+  for (const [id, cents] of harvested) {
+    const f = entry(id);
+    if (f) f.harvestedCents = cents;
+  }
   for (const f of out.values()) {
     // taxCollected is excluded from profit
-    f.netCents = f.incomeCents - f.feesCents + f.shippingNetCents - f.expensesCents - f.partsConsumedCents;
+    f.netCents = f.incomeCents - f.feesCents + f.shippingNetCents - unharvestedExpensesCents(f.expensesCents, f.harvestedCents) - f.partsConsumedCents;
   }
   return out;
 }

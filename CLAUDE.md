@@ -51,13 +51,13 @@ npx vitest run --config vitest.config.ts tests/integration/<file>.test.ts
 - `Expense` — purchase/cost entry; supports split receipts via `splitGroupId` + `AllocationMethod`.
 - `Income` — sale/service entry with platform/payment/shipping/tax fee fields; has `IncomeLine[]` for multi-item sales.
 - `WorkOrder` — repair job linking a `Customer`, one or more `Device`s (`WorkOrderDevice`), and line items (`WorkOrderItem` of type PART/LABOR/NOTE). A device can be on several work orders; `WorkOrderDevice.includeDeviceCost` marks the one work order its expenses count against.
-- `Part` — inventory with average costing via `PartInventoryMovement` (RECEIPT/CONSUME/ADJUSTMENT).
+- `Part` — inventory with average costing via `PartInventoryMovement` (RECEIPT/CONSUME/ADJUSTMENT). A RECEIPT with `sourceDeviceId` is a part harvested from a donor device (`DeviceStatus.DONOR`); its value comes off the donor's cost and is charged to whichever work order consumes the part.
 
 **Utility modules:**
 - `src/lib/sku.ts` — SKU generation (`buildSku`, `brandCode`).
 - `src/lib/allocation.ts` — split-receipt cost allocation across lines (PROPORTIONAL_SUBTOTAL, EVEN, MANUAL).
 - `src/lib/parts.ts` — `effectiveUnitCostCents`: a part's `averageCostCents` once it has been received through a receipt, else the hand-entered `unitCostCents`. Use it wherever stock is valued.
-- `src/lib/server/device-financials.ts` — per-device income, expenses, parts used and net, shared by the Devices list and detail pages. Sale Builder sales are counted through their `IncomeLine`s (the head is skipped when it has device lines); expenses received into parts stock are left out and charged as parts used when consumed on a work order.
+- `src/lib/server/device-financials.ts` — per-device income, expenses, parts used and net, shared by the Devices list and detail pages. Sale Builder sales are counted through their `IncomeLine`s (the head is skipped when it has device lines); expenses received into parts stock are left out and charged as parts used when consumed on a work order. Value harvested from a donor into stock is taken off its expenses the same way (`unharvestedExpensesCents`), on the device pages and in work-order profit.
 
 **Design system:** all styling goes through tokens and shared pieces; do not hand-write colours, radii or one-off button/input classes in pages.
 - Tokens: `src/app.css` (`--c-*` colour channels for light and dark, `--radius-*`, `--shadow-*`), exposed in `tailwind.config.ts` as `bg-surface`, `bg-raised`, `text-ink`, `text-muted`, `border-line`, `bg-accent`, `text-gain`, `text-loss`, `rounded-control`, `rounded-card`, etc. Never use raw palette classes (`zinc-*`, `blue-600`, ...).

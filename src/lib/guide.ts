@@ -110,9 +110,10 @@ export const figures: GuideFigure[] = [
       'The default parts markup is one percentage under Settings > Pricing. It starts at 30%.',
       'While a work order is not invoiced, its part lines on the default price follow the current setting, so changing the setting moves them.',
       'A work order becomes invoiced when the first income is recorded against it (Add Income, an income edited to point at it, or a Sale Builder sale, even for $0) or when "Mark invoiced" is clicked, whichever comes first. The markup at that moment is stored on the work order and used from then on, including for parts added later.',
+      'The invoiced date is the date on that first income, so an income entered late still dates the invoice correctly. "Mark invoiced" uses today.',
       'Once invoiced it stays invoiced: later payments change nothing, and archiving or moving the payment does not undo it. "Undo invoiced" is the only way back, and puts the default-priced parts on the current setting again.',
       'Typed prices are never changed by the setting, invoiced or not.',
-      'Work orders that were already Delivered, Cancelled or paid when line prices were introduced count as invoiced with no markup: their parts show "Not priced" unless a price is typed.'
+      'Work orders that were already Delivered, Cancelled or paid when line prices were introduced count as invoiced with no markup: their parts show "Not priced" unless a price is typed. Their invoiced date is the date of their earliest payment, or the day they were last changed if they had none.'
     ]
   },
   {

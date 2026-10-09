@@ -18,11 +18,13 @@ export async function setPartsMarkupBps(partsMarkupBps: number, db: Db = prisma)
 
 // Marks work orders invoiced, storing the markup in force right now. One that is already
 // invoiced keeps its date and markup, so only the first payment (or "Mark invoiced") counts.
-export async function markWorkOrdersInvoiced(db: Db, workOrderIds: Array<string | null | undefined>): Promise<void> {
+// `invoicedAt` is the date on the payment that triggers it, which can be earlier than today
+// when an income is entered late; "Mark invoiced" uses now.
+export async function markWorkOrdersInvoiced(db: Db, workOrderIds: Array<string | null | undefined>, invoicedAt: Date = new Date()): Promise<void> {
   const ids = [...new Set(workOrderIds.filter((id): id is string => !!id))];
   if (ids.length === 0) return;
   const invoicedMarkupBps = await getPartsMarkupBps(db);
-  await db.workOrder.updateMany({ where: { id: { in: ids }, invoicedAt: null }, data: { invoicedAt: new Date(), invoicedMarkupBps } });
+  await db.workOrder.updateMany({ where: { id: { in: ids }, invoicedAt: null }, data: { invoicedAt, invoicedMarkupBps } });
 }
 
 // Money received against a work order: what was paid on each income, before fees, shipping

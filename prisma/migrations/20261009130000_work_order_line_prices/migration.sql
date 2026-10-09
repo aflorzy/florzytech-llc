@@ -20,8 +20,24 @@ CREATE TABLE "Settings" (
 -- Work orders that are already finished or paid count as invoiced, with no stored markup,
 -- so their part lines stay unpriced and no figure on them changes. Open work orders with
 -- no payment are left alone and pick up the default markup.
+-- The invoiced date is the date of the earliest payment still on the work order (the date
+-- on the income, not when it was typed in). A finished work order with no payment gets the
+-- date it was last changed.
 UPDATE "WorkOrder" w
-SET "invoicedAt" = CURRENT_TIMESTAMP
+SET "invoicedAt" = COALESCE(
+  LEAST(
+    (
+      SELECT MIN(i."date") FROM "Income" i
+      WHERE i."workOrderId" = w."id" AND i."archivedAt" IS NULL
+    ),
+    (
+      SELECT MIN(h."date") FROM "IncomeLine" l
+      JOIN "Income" h ON h."id" = l."incomeId"
+      WHERE l."workOrderId" = w."id" AND l."archivedAt" IS NULL AND h."archivedAt" IS NULL
+    )
+  ),
+  w."updatedAt"
+)
 WHERE w."invoicedAt" IS NULL
   AND (
     w."status" IN ('DELIVERED', 'CANCELLED')

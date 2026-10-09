@@ -174,7 +174,7 @@ export const actions: Actions = {
       }
 
       // The first payment against a work order marks it invoiced
-      await markWorkOrdersInvoiced(tx, [body.workOrderId, ...lines.map((ln) => ln.workOrderId)]);
+      await markWorkOrdersInvoiced(tx, [body.workOrderId, ...lines.map((ln) => ln.workOrderId)], date);
 
       return income;
     });
@@ -217,8 +217,8 @@ export const actions: Actions = {
           workOrderId
         }
       });
-      // The first payment against a work order marks it invoiced
-      await markWorkOrdersInvoiced(tx, [workOrderId]);
+      // The first payment against a work order marks it invoiced, as of the income's date
+      await markWorkOrdersInvoiced(tx, [workOrderId], date);
     });
     return { success: true };
   },
@@ -265,7 +265,7 @@ export const actions: Actions = {
       });
       // Pointing an income at a work order is a payment against it and marks it invoiced.
       // Editing an income that was already on the work order is not a new payment.
-      if (workOrderId !== (previous?.workOrderId ?? null)) await markWorkOrdersInvoiced(tx, [workOrderId]);
+      if (workOrderId !== (previous?.workOrderId ?? null)) await markWorkOrdersInvoiced(tx, [workOrderId], date);
     });
 
     return { success: true, id };

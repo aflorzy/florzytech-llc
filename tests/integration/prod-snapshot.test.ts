@@ -234,14 +234,19 @@ describe.skipIf(!hasSnapshot)('production snapshot', () => {
       expect(now.workOrder.devices.filter((d: any) => d.role === 'DONOR' && d.includeDeviceCost), w.code).toEqual([]);
 
       // Finished or paid work orders are invoiced with their parts left unpriced; the rest are open
-      const hasLivePayment =
-        snapshot.tables.income.some((i) => i.workOrderId === w.id && !i.archivedAt) ||
-        snapshot.tables.incomeLine.some((l) => l.workOrderId === w.id && !l.archivedAt && !snapshot.tables.income.find((i) => i.id === l.incomeId)?.archivedAt);
+      const headOf = (l: Row) => snapshot.tables.income.find((i) => i.id === l.incomeId);
+      const livePayments = [
+        ...snapshot.tables.income.filter((i) => i.workOrderId === w.id && !i.archivedAt),
+        ...snapshot.tables.incomeLine.filter((l) => l.workOrderId === w.id && !l.archivedAt && !headOf(l)?.archivedAt).map((l) => headOf(l)!)
+      ];
+      const hasLivePayment = livePayments.length > 0;
       const alreadyInvoiced = !!w.invoicedAt;
       if (alreadyInvoiced) continue;
       if (['DELIVERED', 'CANCELLED'].includes(w.status) || hasLivePayment) {
         expect(now.pricing, w.code).toMatchObject({ markupBps: null, markupSource: 'unpriced' });
-        expect(now.pricing.invoicedAt, w.code).not.toBeNull();
+        // Dated by its earliest payment, or when it was last changed if it has none
+        const firstPaymentAt = Math.min(...livePayments.map((i) => i.date.getTime()));
+        expect(new Date(now.pricing.invoicedAt).getTime(), w.code).toBe(hasLivePayment ? firstPaymentAt : w.updatedAt.getTime());
         expect(now.summary.invoice.partsPriceCents, w.code).toBe(0);
         expect(now.summary.invoice.invoiceTotalCents, w.code).toBe(now.summary.laborPlannedCents);
       } else {

@@ -129,7 +129,7 @@ export const POST: RequestHandler = async ({ request }) => {
       }
 
       // The first payment against a work order marks it invoiced
-      await markWorkOrdersInvoiced(tx, [body.workOrderId, ...lines.map((ln) => ln.workOrderId)]);
+      await markWorkOrdersInvoiced(tx, [body.workOrderId, ...lines.map((ln) => ln.workOrderId)], date);
 
       return income;
     });

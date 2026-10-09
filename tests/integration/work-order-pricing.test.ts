@@ -266,12 +266,12 @@ describe('work order line prices', () => {
       expect(await invoiceState(order.id)).toEqual({ invoicedAt: null, invoicedMarkupBps: null });
 
       await setMarkup('45');
-      const startedAt = Date.now();
-      expect(await addIncome({ amount: '50.00', workOrderId: order.id })).toEqual({ success: true });
+      expect(await addIncome({ amount: '50.00', workOrderId: order.id, date: '2026-02-14' })).toEqual({ success: true });
 
+      // Dated by the income, which may be entered days later; the markup is today's
       const state = await invoiceState(order.id);
       expect(state.invoicedMarkupBps).toBe(4500);
-      expect(state.invoicedAt!.getTime()).toBeGreaterThanOrEqual(startedAt - 5000);
+      expect(state.invoicedAt).toEqual(new Date(2026, 1, 14));
 
       await setMarkup('20');
       const data = await load(order.id);
@@ -291,9 +291,9 @@ describe('work order line prices', () => {
       const income = await getPrisma().income.findFirstOrThrow({ where: { amountCents: 5000 } });
       await setMarkup('40');
 
-      expect(await editIncome({ id: income.id, amount: '50.00', workOrderId: order.id })).toEqual({ success: true, id: income.id });
+      expect(await editIncome({ id: income.id, amount: '50.00', workOrderId: order.id, date: '2026-02-20' })).toEqual({ success: true, id: income.id });
       expect((await invoiceState(order.id)).invoicedMarkupBps).toBe(4000);
-      expect((await invoiceState(order.id)).invoicedAt).not.toBeNull();
+      expect((await invoiceState(order.id)).invoicedAt).toEqual(new Date(2026, 1, 20));
     });
 
     it('a $0 income marks it', async () => {
@@ -312,6 +312,7 @@ describe('work order line prices', () => {
       await setMarkup('35');
 
       const response = await saleBuilder({
+        date: '2026-02-25',
         workOrderId: onHead.id,
         lines: [
           { type: 'LABOR', amountCents: 5000 },
@@ -322,7 +323,8 @@ describe('work order line prices', () => {
 
       expect((await invoiceState(onHead.id)).invoicedMarkupBps).toBe(3500);
       expect((await invoiceState(onLine.id)).invoicedMarkupBps).toBe(3500);
-      expect((await invoiceState(onLine.id)).invoicedAt).not.toBeNull();
+      expect((await invoiceState(onHead.id)).invoicedAt).toEqual(new Date(2026, 1, 25));
+      expect((await invoiceState(onLine.id)).invoicedAt).toEqual(new Date(2026, 1, 25));
       expect(await invoiceState(untouched.id)).toEqual({ invoicedAt: null, invoicedMarkupBps: null });
     });
 
@@ -350,7 +352,8 @@ describe('work order line prices', () => {
       const first = await invoiceState(order.id);
 
       await setMarkup('80');
-      await addIncome({ amount: '25.00', workOrderId: order.id });
+      // Not even a payment dated earlier than the first one
+      await addIncome({ amount: '25.00', workOrderId: order.id, date: '2025-12-01' });
       await saleBuilder({ workOrderId: order.id, lines: [{ type: 'LABOR', amountCents: 1000 }] });
       const other = await getPrisma().income.create({ data: { date: new Date(), type: 'SERVICE', amountCents: 700 } });
       await editIncome({ id: other.id, amount: '7.00', workOrderId: order.id });
@@ -403,8 +406,11 @@ describe('work order line prices', () => {
       const item = await addPart(order.id, (await newPart('Screen', 1500)).id, 1);
       await setMarkup('40');
 
+      const startedAt = Date.now();
       expect(await wo('mark_invoiced', order.id)).toEqual({ success: true });
       expect((await invoiceState(order.id)).invoicedMarkupBps).toBe(4000);
+      // Marked by hand: dated now
+      expect(Math.abs((await invoiceState(order.id)).invoicedAt!.getTime() - startedAt)).toBeLessThan(60000);
       await setMarkup('10');
       expect(itemOf(await load(order.id), item.id).partPrice.unitPriceCents).toBe(2100);
 
@@ -876,15 +882,27 @@ describe('work order line prices', () => {
       };
       const delivered = await make({ status: 'DELIVERED' });
       const cancelled = await make({ status: 'CANCELLED' });
+      // Paid three times; the earliest payment was archived, so the second one is the first that counts
       const paid = await make({ status: 'IN_PROGRESS' });
-      await prisma.income.create({ data: { date: new Date(), type: 'SERVICE', amountCents: 5000, workOrderId: paid.id } });
+      // Each was typed in well after its date, in a different order
+      const payment = (date: string, extra: Record<string, unknown> = {}) =>
+        prisma.income.create({ data: { date: new Date(date), type: 'SERVICE', amountCents: 5000, workOrderId: paid.id, ...extra } });
+      await payment('2026-03-20T15:00:00Z');
+      await payment('2026-03-12T09:30:00Z');
+      await payment('2026-03-05T08:00:00Z', { archivedAt: new Date() });
+      // Paid through a Sale Builder line whose head is on no work order
       const paidByLine = await make({ status: 'OPEN' });
-      const head = await prisma.income.create({ data: { date: new Date(), type: 'SERVICE', amountCents: 2000 } });
+      const head = await prisma.income.create({ data: { date: new Date('2026-04-02T10:00:00Z'), type: 'SERVICE', amountCents: 2000 } });
       await prisma.incomeLine.create({ data: { incomeId: head.id, type: 'LABOR', amountCents: 2000, workOrderId: paidByLine.id } });
+      // Delivered, with a plain payment and an earlier Sale Builder line
+      const deliveredPaid = await make({ status: 'DELIVERED' });
+      await prisma.income.create({ data: { date: new Date('2026-05-10T10:00:00Z'), type: 'SERVICE', amountCents: 1000, workOrderId: deliveredPaid.id } });
+      const earlierHead = await prisma.income.create({ data: { date: new Date('2026-05-03T10:00:00Z'), type: 'SERVICE', amountCents: 2000 } });
+      await prisma.incomeLine.create({ data: { incomeId: earlierHead.id, type: 'LABOR', amountCents: 2000, workOrderId: deliveredPaid.id } });
       const archivedPayment = await make({ status: 'OPEN' });
       await prisma.income.create({ data: { date: new Date(), type: 'SERVICE', amountCents: 5000, workOrderId: archivedPayment.id, archivedAt: new Date() } });
       const open = await make({ status: 'READY' });
-      return { delivered, cancelled, paid, paidByLine, archivedPayment, open };
+      return { delivered, cancelled, paid, paidByLine, deliveredPaid, archivedPayment, open };
     }
     const runMigration = async () => {
       for (const statement of await migrationDataStatements(MIGRATION)) await getPrisma().$executeRawUnsafe(statement);
@@ -894,7 +912,7 @@ describe('work order line prices', () => {
       const orders = await legacyOrders();
       await runMigration();
 
-      for (const order of [orders.delivered, orders.cancelled, orders.paid, orders.paidByLine]) {
+      for (const order of [orders.delivered, orders.cancelled, orders.paid, orders.paidByLine, orders.deliveredPaid]) {
         const state = await invoiceState(order.id);
         expect(state.invoicedAt).not.toBeNull();
         expect(state.invoicedMarkupBps).toBeNull();
@@ -905,6 +923,28 @@ describe('work order line prices', () => {
         expect(partItem.priceCents).toBeNull();
         // Only what was already typed in (labor) is on the invoice
         expect(data.summary.invoice).toMatchObject({ partsPriceCents: 0, laborPriceCents: 8000, invoiceTotalCents: 8000, totalCostCents: 3000, unpricedPartLines: 1 });
+      }
+    });
+
+    it('the invoiced date is the date of the earliest payment still on the work order', async () => {
+      const orders = await legacyOrders();
+      await runMigration();
+      const invoicedAt = async (id: string) => (await invoiceState(id)).invoicedAt!.toISOString();
+      // Not the later payment, and not the earlier one that was archived
+      expect(await invoicedAt(orders.paid.id)).toBe('2026-03-12T09:30:00.000Z');
+      expect(await invoicedAt(orders.paidByLine.id)).toBe('2026-04-02T10:00:00.000Z');
+      // The earlier of a plain payment and a Sale Builder line
+      expect(await invoicedAt(orders.deliveredPaid.id)).toBe('2026-05-03T10:00:00.000Z');
+    });
+
+    it('a finished work order with no payment is dated when it was last changed', async () => {
+      const orders = await legacyOrders();
+      const before = await getPrisma().workOrder.findMany({ where: { id: { in: [orders.delivered.id, orders.cancelled.id] } }, select: { id: true, updatedAt: true } });
+      await runMigration();
+      for (const { id, updatedAt } of before) {
+        const after = await getPrisma().workOrder.findUniqueOrThrow({ where: { id }, select: { invoicedAt: true, updatedAt: true } });
+        expect(after.invoicedAt).toEqual(updatedAt);
+        expect(after.updatedAt).toEqual(updatedAt);
       }
     });
 

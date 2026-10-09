@@ -10,7 +10,7 @@
   type Customer = { id: string; name: string };
   type Device = { id: string; sku: string; make: string; model: string };
   type Part = { id: string; name: string; averageCostCents?: number | null; unitCostCents?: number | null };
-  type WorkOrderDevice = { id: string; role: string; device: Device; includeDeviceCost: boolean; expensesCents: number; costCountedOn: { id: string; code: string } | null };
+  type WorkOrderDevice = { id: string; role: string; device: Device; includeDeviceCost: boolean; expensesCents: number; harvestedCents: number; costCountedOn: { id: string; code: string } | null };
   type WorkOrderItem = {
     id: string;
     type: 'LABOR' | 'NOTE' | 'PART';
@@ -229,6 +229,9 @@
                 <td>
                   {#if od.includeDeviceCost}
                     {formatUsd(od.expensesCents)}
+                    {#if od.harvestedCents > 0}
+                      <div class="text-xs text-muted">after {formatUsd(od.harvestedCents)} harvested to parts stock</div>
+                    {/if}
                   {:else}
                     <span class="text-muted">Not counted</span>
                     {#if od.costCountedOn}
@@ -252,7 +255,7 @@
           </tbody>
         </table>
       </div>
-      <p class="hint">A device's purchase and other expenses count against one work order. When it comes back for another job, its cost stays on the original one.</p>
+      <p class="hint">A device's purchase and other expenses count against one work order. When it comes back for another job, its cost stays on the original one. Cost a donor has passed to parts stock is charged where those parts are used instead.</p>
     </div>
 
     <div class="card space-y-4 min-w-0">

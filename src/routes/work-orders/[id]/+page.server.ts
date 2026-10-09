@@ -1,6 +1,7 @@
 import type { Actions, PageServerLoad } from './$types';
 import { fail } from '@sveltejs/kit';
 import { prisma } from '$lib/server/prisma';
+import { loadHarvestedCents, unharvestedExpensesCents } from '$lib/server/device-financials';
 import { WorkOrderItemType, WorkOrderDeviceRole, WorkOrderStatus, WorkOrderTargetAction, PartInventoryMovementType, type Prisma } from '@prisma/client';
 
 // Links that currently charge a device's cost to a live work order
@@ -91,10 +92,11 @@ export const load: PageServerLoad = async ({ params }) => {
   // Device-linked expenses: non-archived expenses linked to devices in this WO.
   // Expenses received into parts inventory are left out; their cost is charged when the part is consumed.
   // Only devices whose cost is included here count; a device on several work orders is charged on one.
+  // Cost a donor has passed to parts stock is taken off too; it is charged where those parts are used.
   const links = workOrder?.devices || [];
   const deviceIds = [...new Set(links.map((od) => od.deviceId))];
   const excludedIds = [...new Set(links.filter((od) => !od.includeDeviceCost).map((od) => od.deviceId))];
-  const [expensesByDevice, costCarriers] = await Promise.all([
+  const [expensesByDevice, costCarriers, harvestedCentsOf] = await Promise.all([
     deviceIds.length > 0
       ? prisma.expense.groupBy({
           by: ['deviceId'],
@@ -107,9 +109,12 @@ export const load: PageServerLoad = async ({ params }) => {
           where: { ...activeCostLink, deviceId: { in: excludedIds }, workOrderId: { not: id } },
           select: { deviceId: true, workOrder: { select: { id: true, code: true } } }
         })
-      : []
+      : [],
+    loadHarvestedCents(deviceIds)
   ]);
-  const expensesCentsOf = new Map(expensesByDevice.map((g) => [g.deviceId, g._sum.amountCents || 0]));
+  const expensesCentsOf = new Map(
+    expensesByDevice.map((g) => [g.deviceId, unharvestedExpensesCents(g._sum.amountCents || 0, (g.deviceId && harvestedCentsOf.get(g.deviceId)) || 0)])
+  );
   const carrierOf = new Map(costCarriers.map((c) => [c.deviceId, c.workOrder]));
   const includedIds = new Set(links.filter((od) => od.includeDeviceCost).map((od) => od.deviceId));
   const deviceExpensesCents = [...includedIds].reduce((s, deviceId) => s + (expensesCentsOf.get(deviceId) || 0), 0);
@@ -127,6 +132,7 @@ export const load: PageServerLoad = async ({ params }) => {
       devices: links.map((od) => ({
         ...od,
         expensesCents: expensesCentsOf.get(od.deviceId) || 0,
+        harvestedCents: harvestedCentsOf.get(od.deviceId) || 0,
         // Where the device's cost is counted instead, when it is not counted here
         costCountedOn: od.includeDeviceCost ? null : carrierOf.get(od.deviceId) || null
       }))

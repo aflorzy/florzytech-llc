@@ -1,8 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { actions as deviceActions, load as devicesLoad } from '../../src/routes/devices/+page.server';
-import { load as deviceDetailLoad } from '../../src/routes/devices/[id]/+page.server';
+import { actions as deviceDetailActions, load as deviceDetailLoad } from '../../src/routes/devices/[id]/+page.server';
 import { load as incomeLoad } from '../../src/routes/income/+page.server';
-import { actions as workOrderActions } from '../../src/routes/work-orders/[id]/+page.server';
+import { actions as workOrderActions, load as workOrderLoad } from '../../src/routes/work-orders/[id]/+page.server';
 import { POST as createLinesPost } from '../../src/routes/income/create-lines/+server';
 import { POST as splitPost } from '../../src/routes/expenses/split/+server';
 import { disconnectDb, getPrisma, makeFormRequest, makeJsonRequest, makeLoadEvent, resetAndSeedDb } from './helpers';
@@ -231,6 +231,122 @@ describe('device financial rollups', () => {
       } as Parameters<typeof deviceActions.update>[0]);
       expect(result).toEqual({ success: true, id: device.id });
       expect((await prisma.device.findUniqueOrThrow({ where: { id: device.id } })).status).toBe('DONOR');
+    });
+  });
+
+  // Issue #11: a donor's cost reaches other work orders through the parts pulled from it
+  describe('donor harvest', () => {
+    async function setup() {
+      const prisma = getPrisma();
+      const category = await prisma.category.findFirstOrThrow({ where: { kind: 'expense' }, select: { id: true } });
+      const donor = await prisma.device.create({ data: { sku: 'FZ-TEST-DONOR', make: 'Sony', model: 'PS5', status: 'DONOR' } });
+      await prisma.expense.create({ data: { date: new Date(), amountCents: 10000, subtotalCents: 10000, categoryId: category.id, deviceId: donor.id } });
+      return { prisma, donor };
+    }
+
+    const harvest = (deviceId: string, data: Record<string, string>) =>
+      deviceDetailActions.harvest_part({ request: makeFormRequest(data), params: { id: deviceId } } as Parameters<typeof deviceDetailActions.harvest_part>[0]);
+    const undo = (deviceId: string, id: string) =>
+      deviceDetailActions.undo_harvest({ request: makeFormRequest({ id }), params: { id: deviceId } } as Parameters<typeof deviceDetailActions.undo_harvest>[0]);
+    const loadWorkOrder = async (id: string) => (await workOrderLoad({ params: { id } } as Parameters<typeof workOrderLoad>[0])) as any;
+
+    it('moves the harvested value off the donor and into parts stock', async () => {
+      const { prisma, donor } = await setup();
+      expect(await netFor(donor.id)).toBe(-10000);
+
+      expect(await harvest(donor.id, { newPartName: 'PS5 Fan', quantity: '2', unitCost: '15' })).toEqual({ success: true });
+      const part = await prisma.part.findFirstOrThrow({ where: { name: 'PS5 Fan' } });
+      expect(part).toMatchObject({ quantity: 2, averageCostCents: 1500 });
+
+      const data = await loadDevice(donor.id);
+      expect(data.summary).toMatchObject({ expenses: 10000, harvested: 3000, unharvested: 7000, netProfitCents: -7000 });
+      expect(data.harvested).toHaveLength(1);
+      expect(data.harvested[0]).toMatchObject({ quantity: 2, unitCostCents: 1500, totalCostCents: 3000, part: { id: part.id } });
+    });
+
+    it('charges each work order for the harvested part it uses, and the donor only for what is left', async () => {
+      const { prisma, donor } = await setup();
+      await harvest(donor.id, { newPartName: 'PS5 Fan', quantity: '2', unitCost: '15' });
+      const part = await prisma.part.findFirstOrThrow({ where: { name: 'PS5 Fan' } });
+
+      const repairs = [];
+      for (const sku of ['FZ-TEST-R1', 'FZ-TEST-R2']) {
+        const device = await prisma.device.create({ data: { sku, make: 'Sony', model: 'PS5' } });
+        const wo = await prisma.workOrder.create({ data: { code: `WO-${sku}` } });
+        await prisma.workOrderDevice.create({ data: { workOrderId: wo.id, deviceId: device.id } });
+        const result = await workOrderActions.add_item({
+          request: makeFormRequest({ type: 'PART', partId: part.id, quantity: '1' }),
+          params: { id: wo.id }
+        } as Parameters<typeof workOrderActions.add_item>[0]);
+        expect(result).toEqual({ success: true });
+        repairs.push({ device, wo });
+      }
+
+      for (const { device, wo } of repairs) {
+        expect((await loadWorkOrder(wo.id)).summary).toMatchObject({ partsCostCents: 1500, deviceExpensesCents: 0, profitCents: -1500 });
+        expect(await netFor(device.id)).toBe(-1500);
+      }
+
+      // The donor itself on a work order carries only the cost that was not harvested
+      const scrap = await prisma.workOrder.create({ data: { code: 'WO-TEST-SCRAP' } });
+      await prisma.workOrderDevice.create({ data: { workOrderId: scrap.id, deviceId: donor.id, role: 'DONOR' } });
+      const data = await loadWorkOrder(scrap.id);
+      expect(data.summary.deviceExpensesCents).toBe(7000);
+      expect(data.workOrder.devices[0]).toMatchObject({ expensesCents: 7000, harvestedCents: 3000 });
+    });
+
+    it('averages a harvested part into existing stock', async () => {
+      const { prisma, donor } = await setup();
+      const part = await prisma.part.create({ data: { name: 'HDMI Port', quantity: 1, averageCostCents: 1000 } });
+
+      expect(await harvest(donor.id, { partId: part.id, quantity: '1', unitCost: '20' })).toEqual({ success: true });
+      expect(await prisma.part.findUniqueOrThrow({ where: { id: part.id } })).toMatchObject({ quantity: 2, averageCostCents: 1500 });
+    });
+
+    it('refuses to harvest more value than the donor has left', async () => {
+      const { prisma, donor } = await setup();
+      await harvest(donor.id, { newPartName: 'PS5 Fan', quantity: '1', unitCost: '80' });
+
+      const result = await harvest(donor.id, { newPartName: 'PS5 Drive', quantity: '1', unitCost: '20.01' });
+      expect(result).toMatchObject({ status: 400, data: { error: "Only $20.00 of this device's cost is left to move into parts stock" } });
+      expect(await prisma.part.count({ where: { name: 'PS5 Drive' } })).toBe(0);
+      expect(await netFor(donor.id)).toBe(-2000);
+    });
+
+    it('only harvests from a device marked as a donor', async () => {
+      const { prisma, donor } = await setup();
+      await prisma.device.update({ where: { id: donor.id }, data: { status: 'REPAIRING' } });
+
+      const result = await harvest(donor.id, { newPartName: 'PS5 Fan', quantity: '1', unitCost: '15' });
+      expect(result).toMatchObject({ status: 400 });
+      expect(await prisma.partInventoryMovement.count()).toBe(0);
+    });
+
+    it('puts the cost back on the donor when a harvest is undone', async () => {
+      const { prisma, donor } = await setup();
+      const part = await prisma.part.create({ data: { name: 'HDMI Port', quantity: 1, averageCostCents: 1000 } });
+      await harvest(donor.id, { partId: part.id, quantity: '1', unitCost: '20' });
+      const movement = await prisma.partInventoryMovement.findFirstOrThrow({ where: { sourceDeviceId: donor.id } });
+
+      expect(await undo(donor.id, movement.id)).toEqual({ success: true });
+      expect(await prisma.part.findUniqueOrThrow({ where: { id: part.id } })).toMatchObject({ quantity: 1, averageCostCents: 1000 });
+      expect(await netFor(donor.id)).toBe(-10000);
+      expect((await loadDevice(donor.id)).harvested).toHaveLength(0);
+    });
+
+    it('will not undo a harvest whose parts are already used', async () => {
+      const { prisma, donor } = await setup();
+      await harvest(donor.id, { newPartName: 'PS5 Fan', quantity: '1', unitCost: '15' });
+      const part = await prisma.part.findFirstOrThrow({ where: { name: 'PS5 Fan' } });
+      const wo = await prisma.workOrder.create({ data: { code: 'WO-TEST-USED' } });
+      await workOrderActions.add_item({
+        request: makeFormRequest({ type: 'PART', partId: part.id, quantity: '1' }),
+        params: { id: wo.id }
+      } as Parameters<typeof workOrderActions.add_item>[0]);
+      const movement = await prisma.partInventoryMovement.findFirstOrThrow({ where: { sourceDeviceId: donor.id } });
+
+      expect(await undo(donor.id, movement.id)).toMatchObject({ status: 400 });
+      expect(await netFor(donor.id)).toBe(-8500);
     });
   });
 });

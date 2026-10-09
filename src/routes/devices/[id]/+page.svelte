@@ -19,6 +19,8 @@
     expenses: number;
     stockedExpenses: number;
     partsConsumed: number;
+    harvested: number;
+    unharvested: number;
     fees: number;
     shippingNet: number;
     taxCollected: number;
@@ -61,7 +63,19 @@
     part?: { name: string } | null;
     workOrder: { id: string; code: string };
   };
-  let { data } = $props<{ data: { device: Device | null; summary?: Summary; expenses?: ExpenseRow[]; incomes?: IncomeRow[]; partsUsed?: PartUsedRow[]; workOrders?: WorkOrderRow[] } }>();
+  type HarvestRow = {
+    id: string;
+    createdAt: string | Date;
+    quantity: number;
+    unitCostCents: number;
+    totalCostCents: number;
+    part: { id: string; name: string };
+  };
+  let { data, form } = $props<{
+    data: { device: Device | null; summary?: Summary; expenses?: ExpenseRow[]; incomes?: IncomeRow[]; partsUsed?: PartUsedRow[]; workOrders?: WorkOrderRow[]; harvested?: HarvestRow[]; parts?: { id: string; name: string }[] };
+    form?: { error?: string } | null;
+  }>();
+  let harvestPartId = $state('');
 </script>
 
 {#if !data.device}
@@ -90,6 +104,9 @@
         <dl class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-6 gap-y-2 text-sm tabular-nums">
           <dt class="text-muted">Total Income</dt><dd class="text-right">{formatUsd(data.summary.income)}</dd>
           <dt class="text-muted">Total Expenses</dt><dd class="text-right">{formatUsd(data.summary.expenses)}</dd>
+          {#if data.summary.harvested > 0}
+            <dt class="text-muted">Harvested to Parts Stock</dt><dd class="text-right">{formatUsd(-data.summary.harvested)}</dd>
+          {/if}
           <dt class="text-muted">Parts Used</dt><dd class="text-right">{formatUsd(data.summary.partsConsumed)}</dd>
           <dt class="text-muted">Fees</dt><dd class="text-right">{formatUsd(data.summary.fees)}</dd>
           <dt class="text-muted">Shipping Net</dt><dd class="text-right">{formatUsd(data.summary.shippingNet)}</dd>
@@ -99,6 +116,9 @@
         </dl>
         {#if data.summary.stockedExpenses > 0}
           <p class="hint mt-3">{formatUsd(data.summary.stockedExpenses)} of linked expenses went into parts stock. They are left out of Total Expenses and counted under Parts Used when the parts are used on a work order.</p>
+        {/if}
+        {#if data.summary.harvested > 0}
+          <p class="hint mt-3">Cost harvested into parts stock no longer counts against this device. It is charged to the work order each part is used on.</p>
         {/if}
       {/if}
     </div>
@@ -210,6 +230,78 @@
         <p class="text-sm text-muted">This device is not on any work order.</p>
       {/if}
     </div>
+    {#if data.device.status === 'DONOR' || (data.harvested && data.harvested.length > 0)}
+      <div class="card min-w-0 xl:col-span-2 space-y-4">
+        <h2 class="card-title">Harvested Parts</h2>
+        <p class="hint">Parts pulled from this donor go into parts stock at the value you give them, and that much of the donor's cost moves with them. Each work order that uses one is charged for it.{#if data.summary} {formatUsd(data.summary.unharvested)} of this device's cost is still on the device.{/if}</p>
+        {#if form?.error}
+          <div class="alert-error" role="alert">{form.error}</div>
+        {/if}
+        {#if data.device.status === 'DONOR'}
+          <form method="post" action="?/harvest_part" class="grid gap-3 md:grid-cols-12 items-end">
+            <div class="col-span-12 md:col-span-4">
+              <label class="label" for="harvest-part">Part</label>
+              <select id="harvest-part" name="partId" class="input input-sm" bind:value={harvestPartId}>
+                <option value="">- New part -</option>
+                {#each data.parts || [] as p}
+                  <option value={p.id}>{p.name}</option>
+                {/each}
+              </select>
+            </div>
+            {#if !harvestPartId}
+              <div class="col-span-12 md:col-span-3">
+                <label class="label" for="harvest-new-part">New part name</label>
+                <input id="harvest-new-part" name="newPartName" class="input input-sm" required />
+              </div>
+            {/if}
+            <div class="col-span-6 md:col-span-1">
+              <label class="label" for="harvest-qty">Qty</label>
+              <input id="harvest-qty" name="quantity" type="number" step="1" min="1" value="1" class="input input-sm" required />
+            </div>
+            <div class="col-span-6 md:col-span-2">
+              <label class="label" for="harvest-cost">Value each (USD)</label>
+              <input id="harvest-cost" name="unitCost" type="number" step="0.01" min="0" placeholder="0.00" class="input input-sm" required />
+            </div>
+            <div class="col-span-12 md:col-span-2 flex md:justify-end"><button class="btn btn-secondary w-full md:w-auto">Add to Stock</button></div>
+          </form>
+        {/if}
+        {#if data.harvested && data.harvested.length > 0}
+          <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Part</th>
+                <th>Qty</th>
+                <th>Value Each</th>
+                <th>Total</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each data.harvested as h}
+                <tr>
+                  <td>{new Date(h.createdAt).toLocaleDateString()}</td>
+                  <td>{h.part.name}</td>
+                  <td>{h.quantity}</td>
+                  <td>{formatUsd(h.unitCostCents)}</td>
+                  <td>{formatUsd(h.totalCostCents)}</td>
+                  <td>
+                    <form method="post" action="?/undo_harvest" class="inline" onsubmit={(e) => { if (!confirm('Take these parts back out of stock?')) { e.preventDefault(); } }}>
+                      <input type="hidden" name="id" value={h.id} />
+                      <button class="btn btn-danger btn-sm">Undo</button>
+                    </form>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+          </div>
+        {:else}
+          <p class="text-sm text-muted">No parts harvested from this device yet.</p>
+        {/if}
+      </div>
+    {/if}
     <div class="card min-w-0 xl:col-span-2">
       <h2 class="card-title">Parts Used</h2>
       {#if data.partsUsed && data.partsUsed.length > 0}

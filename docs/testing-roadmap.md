@@ -83,6 +83,7 @@
 - Device net charged a part bought into stock as an expense and never charged parts consumed on work orders (#7).
 - Receipt-wide notes were merged into blank line notes instead of being stored on the receipt (#2); added `Expense.receiptNotes`.
 - Added the `DONOR` device status (#5).
+- A donor's cost could only be charged whole to a single work order, or not at all; parts harvested from a donor now carry their share of its cost into stock and on to the work orders that use them (#11).
 
 ## Known Risks / Blockers
 - CI and local runs share one Neon test branch; overlapping runs will corrupt each other's fixtures. The workflow serializes itself with a `concurrency` group, but do not run tests locally while a CI run is in progress.

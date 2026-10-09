@@ -21,7 +21,8 @@
     plus: 'M12 5v14M5 12h14',
     menu: 'M4 7h16M4 12h16M4 17h16',
     external: 'M14 5h5v5M19 5l-8 8M11 6H7a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-4',
-    chevron: 'M9 6l6 6-6 6'
+    chevron: 'M9 6l6 6-6 6',
+    guide: 'M4 5a2 2 0 0 1 2-2h13v15H6a2 2 0 0 0-2 2zM4 20a2 2 0 0 0 2 2h13v-4M9 8h6'
   } as const;
   export type IconName = keyof typeof paths;
 </script>

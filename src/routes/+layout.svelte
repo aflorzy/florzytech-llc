@@ -27,7 +27,13 @@
         { href: '/expenses', label: 'Expenses', icon: 'expense' }
       ]
     },
-    { label: null, items: [{ href: '/settings', label: 'Settings', icon: 'settings' }] }
+    {
+      label: null,
+      items: [
+        { href: '/guide', label: 'Guide', icon: 'guide' },
+        { href: '/settings', label: 'Settings', icon: 'settings' }
+      ]
+    }
   ];
 
   const isActive = (href: string) =>

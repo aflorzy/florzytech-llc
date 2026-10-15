@@ -35,7 +35,7 @@ npx vitest run --config vitest.config.ts tests/integration/<file>.test.ts
 - `DATABASE_URL` must include `sslmode=require` (Neon Postgres).
 - The test env loader refuses to run if `DATABASE_URL_TEST` is the same database as `DATABASE_URL` in `.env` (tests truncate every table).
 - CI: `.gitea/workflows/ci.yml` runs check, build, unit, integration, e2e and a Docker build on PRs to `master` (needs the `DATABASE_URL_TEST` repo secret); pushes to `master` also push the image and trigger the staging deploy webhook.
-- Docker: `Dockerfile` builds the adapter-node output; runtime needs `DATABASE_URL` and `ORIGIN`. `GET /healthz` is the health probe. Deployment config lives in the `app-deployments` repo under `apps/florzytech-tracker`.
+- Docker: `Dockerfile` builds the adapter-node output; runtime needs `DATABASE_URL` and `ORIGIN`. `GET /livez` is the container health probe (no DB access, so Neon can scale to zero); `GET /healthz` checks database connectivity and must not be polled. Deployment config lives in the `app-deployments` repo under `apps/florzytech-tracker`.
 - `npm run test:snapshot:export` writes an anonymized read-only copy of the `.env` database to `tests/fixtures/prod-snapshot.json` (gitignored); `prod-snapshot.test.ts` is skipped when the file is absent.
 
 ## Architecture

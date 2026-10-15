@@ -34,8 +34,9 @@ COPY --from=build /app/prisma ./prisma
 
 EXPOSE 3000
 
+# /livez does not query the database, so polling it lets Neon scale to zero between requests.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/healthz',res=>{ process.exit(res.statusCode===200?0:1) }).on('error',()=>process.exit(1))"
+  CMD node -e "require('http').get('http://localhost:3000/livez',res=>{ process.exit(res.statusCode===200?0:1) }).on('error',()=>process.exit(1))"
 
 # Run migrations on container start. Disable by setting RUN_MIGRATIONS=false
 ENV RUN_MIGRATIONS=true

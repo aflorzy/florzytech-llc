@@ -8,9 +8,10 @@ on:
     branches:
       - master # Only PRs targeting master
 
-# Every run truncates and reseeds the shared Neon test branch, so runs must not overlap.
+# Each test job gets its own throwaway Postgres (see services below), so runs no longer share
+# state. Runs on the same ref are still serialized so staging deploys land in order.
 concurrency:
-  group: florzytech-test-db
+  group: ci-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -18,10 +19,24 @@ jobs:
     name: Type-check, build, and test
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # A fresh database per job. A shared test database let one branch's migrations (e.g. a
+    # DROP TABLE) leak into every other branch's run, and kept a Neon compute busy.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: tracker
+          POSTGRES_PASSWORD: tracker
+          POSTGRES_DB: tracker_test
+        options: >-
+          --health-cmd "pg_isready -U tracker -d tracker_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     env:
       CI: "true"
-      # Neon *test* branch only. The test env loader overrides DATABASE_URL with this value.
-      DATABASE_URL_TEST: ${{ secrets.DATABASE_URL_TEST }}
+      # The test env loader overrides DATABASE_URL with this value.
+      DATABASE_URL_TEST: postgresql://tracker:tracker@postgres:5432/tracker_test
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -30,13 +45,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-
-      - name: Require test database secret
-        run: |
-          if [ -z "$DATABASE_URL_TEST" ]; then
-            echo "::error::Repository secret DATABASE_URL_TEST is not set."
-            exit 1
-          fi
 
       - name: Install Dependencies
         run: npm ci
@@ -50,10 +58,19 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Wait for test database
+        run: |
+          for i in $(seq 1 30); do
+            (echo > /dev/tcp/postgres/5432) 2>/dev/null && exit 0
+            sleep 2
+          done
+          echo "::error::Postgres service did not come up"
+          exit 1
+
       - name: Apply migrations to test database
         run: npx prisma migrate deploy
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL_TEST }}
+          DATABASE_URL: ${{ env.DATABASE_URL_TEST }}
 
       - name: Unit tests
         run: npm run test:unit

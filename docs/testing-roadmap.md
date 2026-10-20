@@ -86,7 +86,7 @@
 - A donor's cost could only be charged whole to a single work order, or not at all; parts harvested from a donor now carry their share of its cost into stock and on to the work orders that use them (#11).
 
 ## Known Risks / Blockers
-- CI and local runs share one Neon test branch; overlapping runs will corrupt each other's fixtures. The workflow serializes itself with a `concurrency` group, but do not run tests locally while a CI run is in progress.
+- CI uses a throwaway Postgres service container per job, so CI runs never share state with each other or with local runs. Locally, `DATABASE_URL_TEST` still points at a dedicated database of your own.
 - `DATABASE_URL_TEST` must remain isolated from production data.
 - E2E selectors should continue using stable IDs/labels to avoid UI-structure brittleness.
 - Any schema changes must preserve deterministic reset/seed behavior.
@@ -165,3 +165,4 @@
 - 2026-03-01: Primary integration, e2e, and secondary integration suites verified passing by user in local environment.
 - 2026-03-01: Tightened e2e deterministic entity selection by matching created device SKU/work-order row notes in `tests/e2e/critical-workflows.spec.ts`.
 - 2026-03-01: Removed duplicated env-parsing implementation by making `tests/utils/env.mjs` canonical and using a thin wrapper in `tests/utils/env-loader.ts`.
+- 2026-10-20: CI moved off the shared Neon test branch to a per-job `postgres:17-alpine` service. A PR's migration that dropped `IncomeLine` had been applied to the shared branch and broke every other branch's tests.

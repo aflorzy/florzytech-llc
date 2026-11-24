@@ -91,7 +91,7 @@
 - The Income date filter left out incomes on the last day of the range in time zones behind UTC (#14). The Expenses filter still parses its dates the same way.
 
 ## Known Risks / Blockers
-- CI has its own test database (since 9 October 2026), so local runs against `DATABASE_URL_TEST` in `.env.test` no longer collide with a CI run. The workflow still serializes itself with a `concurrency` group.
+- CI uses a throwaway Postgres service container per job, so CI runs never share state with each other or with local runs. Locally, `DATABASE_URL_TEST` still points at a dedicated database of your own.
 - `DATABASE_URL_TEST` must remain isolated from production data.
 - E2E selectors should continue using stable IDs/labels to avoid UI-structure brittleness.
 - Any schema changes must preserve deterministic reset/seed behavior.
@@ -170,3 +170,4 @@
 - 2026-03-01: Primary integration, e2e, and secondary integration suites verified passing by user in local environment.
 - 2026-03-01: Tightened e2e deterministic entity selection by matching created device SKU/work-order row notes in `tests/e2e/critical-workflows.spec.ts`.
 - 2026-03-01: Removed duplicated env-parsing implementation by making `tests/utils/env.mjs` canonical and using a thin wrapper in `tests/utils/env-loader.ts`.
+- 2026-10-20: CI moved off the shared Neon test branch to a per-job `postgres:17-alpine` service. A PR's migration that dropped `IncomeLine` had been applied to the shared branch and broke every other branch's tests.

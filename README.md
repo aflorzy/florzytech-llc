@@ -54,7 +54,8 @@ docker run -p 3000:3000 -e DATABASE_URL=... -e ORIGIN=http://localhost:3000 flor
 
 - `ORIGIN` must be the URL the app is reached at, or SvelteKit rejects form posts.
 - The container runs `prisma migrate deploy` on start and exits if a migration fails. Set `RUN_MIGRATIONS=false` to skip.
-- `GET /healthz` returns 200 when the app can reach the database.
+- `GET /livez` returns 200 when the process is up. It never touches the database and is what the container `HEALTHCHECK` polls, so Neon can scale to zero.
+- `GET /healthz` returns 200 when the app can reach the database. Use it for manual checks and deploy scripts, not for frequent polling: each call wakes the Neon compute.
 
 CI (`.gitea/workflows/ci.yml`): every PR to `master` runs type-check, build, unit, integration and e2e tests and a Docker build. A push to `master` reruns the tests, pushes `tracker:latest` and `tracker:<sha>.<run>` to the registry, and calls the staging deploy webhook. Production is deployed by pinning an image tag in the `app-deployments` repo (`apps/florzytech-tracker`).
 

@@ -193,7 +193,7 @@ describe('retiring the Sale Builder: migration', () => {
       expect(data.summary.profitCents).toBe(-20000);
     });
 
-    it('an archived income covering two devices, replaced by one plain income per device: the plain incomes keep counting, once', async () => {
+    it('an archived income covering two devices, replaced by one plain income per device: split into two archived incomes, and the plain incomes keep counting, once', async () => {
       const prisma = getPrisma();
       const a = await newDevice(1000);
       const b = await newDevice(1500);
@@ -210,13 +210,14 @@ describe('retiring the Sale Builder: migration', () => {
 
       await runMigration(MIGRATION);
 
-      expect(await incomeRow(income.id)).toMatchObject({
-        deviceId: null,
-        workOrderId: order.id,
-        archivedAt,
-        amountCents: 4357,
-        notes: `USPS refund | Sale Builder lines: ${b.sku} 21.79, ${a.sku} 21.78`
-      });
+      const note = `USPS refund | Split from Sale Builder sale ${income.id} into 2 incomes, one per device: ${b.sku} 21.79, ${a.sku} 21.78`;
+      // The income named no device, so it keeps the largest line
+      expect(await incomeRow(income.id)).toMatchObject({ deviceId: b.id, workOrderId: order.id, archivedAt, type: 'DEPOSIT', amountCents: 2179, notes: note });
+      const pieces = await prisma.income.findMany({ where: { notes: note }, orderBy: { amountCents: 'asc' } });
+      expect(pieces.map((p) => [p.deviceId, p.amountCents, p.archivedAt])).toEqual([
+        [a.id, 2178, archivedAt],
+        [b.id, 2179, archivedAt]
+      ]);
       expect(await dashboard()).toEqual(dashboardBefore);
       expect((await financials(a.id)).netCents).toBe(2178 - 1000);
       expect((await financials(b.id)).netCents).toBe(2179 - 1500);
@@ -226,41 +227,128 @@ describe('retiring the Sale Builder: migration', () => {
       expect(data.summary.profitCents).toBe(4357 - 2500);
     });
 
-    // Decided on #14: a sale of several devices becomes one income on its work order
-    it('a live income covering three devices: tied to its work order only, so the work order keeps the whole amount and no device is credited', async () => {
+    // Decided on #14: a sale of several devices becomes one income per device on its work order
+    it('a live income covering three devices: split into one income per device, so every device, the work order and the dashboard keep their figures', async () => {
       const prisma = getPrisma();
       const console5 = await newDevice(11193);
       const padA = await newDevice(3551);
       const padB = await newDevice(1210);
       const order = await newWorkOrder([console5.id, padA.id, padB.id]);
-      const income = await newIncome({ date: new Date(2025, 11, 22), amountCents: 25000, deviceId: console5.id, workOrderId: order.id }, [
-        { type: 'DEVICE', amountCents: 23000, deviceId: console5.id, workOrderId: order.id },
-        { type: 'DEVICE', amountCents: 1000, deviceId: padA.id, workOrderId: order.id },
-        { type: 'DEVICE', amountCents: 1000, deviceId: padB.id, workOrderId: order.id }
-      ]);
+      const channel = await prisma.salesChannel.findFirstOrThrow({ select: { id: true } });
+      const income = await newIncome(
+        { date: new Date(2025, 11, 22), amountCents: 25000, deviceId: console5.id, workOrderId: order.id, channelId: channel.id },
+        [
+          { type: 'DEVICE', amountCents: 23000, deviceId: console5.id, workOrderId: order.id },
+          { type: 'DEVICE', amountCents: 1000, deviceId: padA.id, workOrderId: order.id },
+          { type: 'DEVICE', amountCents: 1000, deviceId: padB.id, workOrderId: order.id }
+        ]
+      );
+      const original = await incomeRow(income.id);
       const dashboardBefore = await dashboard();
       const orderBefore = await prisma.workOrder.findUniqueOrThrow({ where: { id: order.id } });
+      const workOrderBefore = await workOrder(order.id);
 
       await runMigration(MIGRATION);
 
+      // What each device sold for, largest first, then by SKU
+      const note = `Split from Sale Builder sale ${income.id} into 3 incomes, one per device: ${console5.sku} 230.00, ${padA.sku} 10.00, ${padB.sku} 10.00`;
+      // The income keeps its row for the device it named
       const after = await incomeRow(income.id);
-      expect(after).toMatchObject({ deviceId: null, workOrderId: order.id, amountCents: 25000, archivedAt: null, date: new Date(2025, 11, 22) });
-      // What each device sold for is kept in the notes, largest first, then by SKU
-      expect(after.notes).toBe(`Sale Builder lines: ${console5.sku} 230.00, ${padA.sku} 10.00, ${padB.sku} 10.00`);
+      expect(after).toEqual({ ...original, amountCents: 23000, notes: note });
+      const pieces = await prisma.income.findMany({ where: { workOrderId: order.id }, orderBy: [{ amountCents: 'desc' }, { device: { sku: 'asc' } }] });
+      expect(pieces).toHaveLength(3);
+      expect(pieces.map((p) => [p.deviceId, p.amountCents])).toEqual([
+        [console5.id, 23000],
+        [padA.id, 1000],
+        [padB.id, 1000]
+      ]);
+      // The new incomes are copies of the sale: same date, type, channel, work order and recording time
+      for (const piece of pieces.slice(1)) {
+        expect(piece.id).not.toBe(income.id);
+        expect(piece).toMatchObject({
+          date: original.date,
+          type: original.type,
+          channelId: channel.id,
+          categoryId: original.categoryId,
+          customerId: original.customerId,
+          workOrderId: order.id,
+          archivedAt: null,
+          createdAt: original.createdAt,
+          notes: note,
+          platformFeesCents: 0,
+          paymentFeesCents: 0,
+          shippingRevenueCents: 0,
+          shippingCostCents: 0,
+          taxCollectedCents: 0
+        });
+      }
 
-      // Spending power and the work order are unchanged
+      // Nothing moves: spending power, the work order and each device
       expect(await dashboard()).toEqual(dashboardBefore);
       expect(await prisma.workOrder.findUniqueOrThrow({ where: { id: order.id } })).toEqual(orderBefore);
       const data = await workOrder(order.id);
+      expect(data.summary).toEqual(workOrderBefore.summary);
       expect(data.summary.income).toMatchObject({ grossCents: 25000, netRevenueCents: 25000 });
       expect(data.summary.invoice.receivedCents).toBe(25000);
-      expect(data.summary.deviceExpensesCents).toBe(11193 + 3551 + 1210);
       expect(data.summary.profitCents).toBe(25000 - 15954);
+      // Each device keeps what its line gave it while the Sale Builder was read
+      expect(await financials(console5.id)).toMatchObject({ incomeCents: 23000, netCents: 23000 - 11193 });
+      expect(await financials(padA.id)).toMatchObject({ incomeCents: 1000, netCents: 1000 - 3551 });
+      expect(await financials(padB.id)).toMatchObject({ incomeCents: 1000, netCents: 1000 - 1210 });
+    });
 
-      // The devices no longer carry the sale: each shows its cost
-      expect(await financials(console5.id)).toMatchObject({ incomeCents: 0, netCents: -11193 });
-      expect(await financials(padA.id)).toMatchObject({ incomeCents: 0, netCents: -3551 });
-      expect(await financials(padB.id)).toMatchObject({ incomeCents: 0, netCents: -1210 });
+    it('a sale of two devices that names the smaller one keeps its row for that device', async () => {
+      const big = await newDevice();
+      const small = await newDevice();
+      const order = await newWorkOrder([big.id, small.id]);
+      const income = await newIncome({ amountCents: 9000, deviceId: small.id, workOrderId: order.id }, [
+        { type: 'DEVICE', amountCents: 8000, deviceId: big.id, workOrderId: order.id },
+        { type: 'DEVICE', amountCents: 1000, deviceId: small.id, workOrderId: order.id }
+      ]);
+
+      await runMigration(MIGRATION);
+
+      expect(await incomeRow(income.id)).toMatchObject({ deviceId: small.id, amountCents: 1000 });
+      const other = await getPrisma().income.findFirstOrThrow({ where: { workOrderId: order.id, id: { not: income.id } } });
+      expect(other).toMatchObject({ deviceId: big.id, amountCents: 8000 });
+      // Piece 1 is listed first in the notes
+      expect(other.notes).toBe(`Split from Sale Builder sale ${income.id} into 2 incomes, one per device: ${small.sku} 10.00, ${big.sku} 80.00`);
+      expect((await financials(big.id)).incomeCents).toBe(8000);
+      expect((await financials(small.id)).incomeCents).toBe(1000);
+    });
+
+    it('a sale of two devices with fees, shipping and tax: each piece carries its own device lines\' share, and the pieces add up to the sale', async () => {
+      const prisma = getPrisma();
+      const a = await newDevice(4000);
+      const b = await newDevice(1000);
+      const order = await newWorkOrder([a.id, b.id]);
+      const income = await newIncome(
+        { amountCents: 20000, workOrderId: order.id, platformFeesCents: 2000, paymentFeesCents: 600, shippingRevenueCents: 1000, shippingCostCents: 800, taxCollectedCents: 1600, notes: 'eBay bundle' },
+        [
+          { type: 'DEVICE', amountCents: 15000, deviceId: a.id, workOrderId: order.id, allocatedPlatformFeesCents: 1500, allocatedPaymentFeesCents: 450, allocatedShippingRevenueCents: 750, allocatedShippingCostCents: 600, allocatedTaxCents: 1200 },
+          { type: 'DEVICE', amountCents: 5000, deviceId: b.id, workOrderId: order.id, allocatedPlatformFeesCents: 500, allocatedPaymentFeesCents: 150, allocatedShippingRevenueCents: 250, allocatedShippingCostCents: 200, allocatedTaxCents: 400 },
+          // A $0 part line for a part that is on the work order
+          { type: 'PART', amountCents: 0, workOrderId: order.id }
+        ]
+      );
+      const dashboardBefore = await dashboard();
+      const workOrderBefore = (await workOrder(order.id)).summary;
+
+      await runMigration(MIGRATION);
+
+      const pieces = await prisma.income.findMany({ where: { workOrderId: order.id }, orderBy: { amountCents: 'desc' } });
+      const money = (p: (typeof pieces)[number]) => [p.deviceId, p.amountCents, p.platformFeesCents, p.paymentFeesCents, p.shippingRevenueCents, p.shippingCostCents, p.taxCollectedCents];
+      expect(pieces.map(money)).toEqual([
+        [a.id, 15000, 1500, 450, 750, 600, 1200],
+        [b.id, 5000, 500, 150, 250, 200, 400]
+      ]);
+      expect(pieces[0].id).toBe(income.id);
+      expect(pieces.every((p) => p.notes?.startsWith('eBay bundle | Split from Sale Builder sale '))).toBe(true);
+      expect(await dashboard()).toEqual(dashboardBefore);
+      expect((await workOrder(order.id)).summary).toEqual(workOrderBefore);
+      // What each device's line gave it while the Sale Builder was read
+      expect(await financials(a.id)).toMatchObject({ incomeCents: 15000, feesCents: 1950, shippingNetCents: 150, taxCollectedCents: 1200, netCents: 15000 - 1950 + 150 - 4000 });
+      expect(await financials(b.id)).toMatchObject({ incomeCents: 5000, feesCents: 650, shippingNetCents: 50, taxCollectedCents: 400, netCents: 5000 - 650 + 50 - 1000 });
     });
 
     it('fees shared exactly across the one device line stay on the income and reach the same figures', async () => {
@@ -306,14 +394,22 @@ describe('retiring the Sale Builder: migration', () => {
       const plain = await newDevice();
       await prisma.income.create({ data: { date: new Date(2026, 1, 1), type: 'SALE', amountCents: 7000, platformFeesCents: 700, deviceId: plain.id } });
       const money = { id: true, amountCents: true, platformFeesCents: true, paymentFeesCents: true, shippingRevenueCents: true, shippingCostCents: true, taxCollectedCents: true, date: true, type: true, workOrderId: true, archivedAt: true };
-      const moneyBefore = await prisma.income.findMany({ orderBy: { id: 'asc' }, select: money });
+      const notSplit = { NOT: { workOrderId: multiOrder.id } };
+      const moneyBefore = await prisma.income.findMany({ where: notSplit, orderBy: { id: 'asc' }, select: money });
       const dashboardBefore = await dashboard();
       expect(await lineCount()).toBe(4);
 
       await runMigration(MIGRATION);
 
-      expect(await prisma.income.findMany({ orderBy: { id: 'asc' }, select: money })).toEqual(moneyBefore);
+      // Only the sale of two devices became two incomes; every other income keeps its money
+      expect(await prisma.income.findMany({ where: notSplit, orderBy: { id: 'asc' }, select: money })).toEqual(moneyBefore);
+      expect(await prisma.income.findMany({ where: { workOrderId: multiOrder.id }, orderBy: { amountCents: 'desc' }, select: { deviceId: true, amountCents: true } })).toEqual([
+        { deviceId: a.id, amountCents: 4000 },
+        { deviceId: b.id, amountCents: 1000 }
+      ]);
       expect(await dashboard()).toEqual(dashboardBefore);
+      expect((await financials(a.id)).netCents).toBe(4000 - 100);
+      expect((await financials(b.id)).netCents).toBe(1000 - 100);
       expect((await financials(single.id)).netCents).toBe(7000);
       expect((await financials(plain.id)).netCents).toBe(6300);
       expect((await workOrder(singleOrder.id)).summary.income.grossCents).toBe(16000);
@@ -392,7 +488,39 @@ describe('retiring the Sale Builder: migration', () => {
       const a = await newDevice();
       const b = await newDevice();
       const income = await newIncome({ amountCents: 5000, deviceId: a.id }, [{ type: 'DEVICE', amountCents: 5000, deviceId: b.id }]);
-      await expectRefused(income.id, /names a different device than its one device line/);
+      await expectRefused(income.id, /names a device that none of its device lines name/);
+    });
+
+    it('refuses a sale of several devices that names a device none of its lines do', async () => {
+      const [a, b, c] = [await newDevice(), await newDevice(), await newDevice()];
+      const order = await newWorkOrder([a.id, b.id]);
+      const income = await newIncome({ amountCents: 5000, deviceId: c.id, workOrderId: order.id }, [
+        { type: 'DEVICE', amountCents: 3000, deviceId: a.id, workOrderId: order.id },
+        { type: 'DEVICE', amountCents: 2000, deviceId: b.id, workOrderId: order.id }
+      ]);
+      await expectRefused(income.id, /names a device that none of its device lines name/);
+    });
+
+    it('refuses a sale of several devices whose fees were rounded down across the lines, since a piece would be charged less than the sale', async () => {
+      const a = await newDevice();
+      const b = await newDevice();
+      const order = await newWorkOrder([a.id, b.id]);
+      const income = await newIncome({ amountCents: 3000, platformFeesCents: 100, workOrderId: order.id }, [
+        { type: 'DEVICE', amountCents: 2000, deviceId: a.id, workOrderId: order.id, allocatedPlatformFeesCents: 66 },
+        { type: 'DEVICE', amountCents: 1000, deviceId: b.id, workOrderId: order.id, allocatedPlatformFeesCents: 33 }
+      ]);
+      await expectRefused(income.id, /covers several devices and its device lines do not add up to the income, so splitting it would change the money/);
+    });
+
+    it('refuses an archived sale of several devices whose lines do not add up, since splitting it would lose part of the amount', async () => {
+      const a = await newDevice();
+      const b = await newDevice();
+      const order = await newWorkOrder([a.id, b.id]);
+      const income = await newIncome({ amountCents: 5000, workOrderId: order.id, archivedAt: new Date(2026, 0, 2) }, [
+        { type: 'DEVICE', amountCents: 3000, deviceId: a.id, workOrderId: order.id },
+        { type: 'DEVICE', amountCents: 1000, deviceId: b.id, workOrderId: order.id }
+      ]);
+      await expectRefused(income.id, /covers several devices and its device lines do not add up to the income/);
     });
 
     it('refuses several devices on an income with no work order', async () => {
@@ -402,7 +530,7 @@ describe('retiring the Sale Builder: migration', () => {
         { type: 'DEVICE', amountCents: 30000, deviceId: a.id },
         { type: 'DEVICE', amountCents: 10000, deviceId: b.id }
       ]);
-      await expectRefused(income.id, /covers several devices and has no work order to tie the income to/);
+      await expectRefused(income.id, /covers several devices and has no work order to tie the incomes to/);
     });
 
     it('refuses a device line that is only part of the income, since the device would be credited more than today', async () => {

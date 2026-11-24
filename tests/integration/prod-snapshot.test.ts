@@ -283,11 +283,10 @@ describe.skipIf(!hasSnapshot)('production snapshot', () => {
 
   // Issue #14: folding the Sale Builder's lines into their incomes must leave every figure
   // where it was. "Before" is worked out in SQL from the lines by the rules the app used while
-  // it still read them, so it does not depend on the code that replaced them. The one decided
-  // exception: a live sale of several devices becomes an income on its work order only, so
-  // those devices lose the share their lines gave them and nothing else moves.
+  // it still read them, so it does not depend on the code that replaced them. A sale of several
+  // devices becomes one income per device, so no figure moves at all.
   it.skipIf(!hasSnapshot || legacyLines(loadSnapshot()).length === 0)(
-    'retiring the Sale Builder changes no figure except the devices on a sale of several devices',
+    'retiring the Sale Builder changes no figure: not a device, a work order, the dashboard or stock',
     async () => {
       const prisma = getPrisma();
       await insertTables(snapshot, [...REFERENCE_TABLES, ...LEDGER_TABLES]);
@@ -388,10 +387,31 @@ describe.skipIf(!hasSnapshot)('production snapshot', () => {
 
       await runMigration('20261009140000_retire_sale_builder');
 
-      // The lines are gone, and no income was added, removed or had its money touched
+      // The lines are gone. Every income keeps its money, except a sale of several devices,
+      // which is split into one income per device that together carry exactly what it did.
       const [gone] = await prisma.$queryRawUnsafe<Row[]>(`SELECT to_regclass('public."IncomeLine"')::text AS name`);
       expect(gone.name).toBeNull();
-      expect(await incomes()).toEqual(incomesBefore);
+      const lineDevicesOf = (incomeId: string) => [...new Set(lines.filter((l) => l.incomeId === incomeId && l.deviceId).map((l) => l.deviceId as string))];
+      const multiDevice = snapshot.tables.income.filter((i) => lineDevicesOf(i.id).length > 1);
+      const multiIds = new Set(multiDevice.map((i) => i.id as string));
+      const incomesAfter = await incomes();
+      const originalIds = new Set(incomesBefore.map((i) => i.id));
+      expect(incomesAfter.filter((i) => originalIds.has(i.id) && !multiIds.has(i.id))).toEqual(incomesBefore.filter((i) => !multiIds.has(i.id)));
+      const added = incomesAfter.filter((i) => !originalIds.has(i.id));
+      expect(added).toHaveLength(multiDevice.reduce((n, i) => n + lineDevicesOf(i.id).length - 1, 0));
+      const moneyKeys = ['amountCents', 'platformFeesCents', 'paymentFeesCents', 'shippingRevenueCents', 'shippingCostCents', 'taxCollectedCents'] as const;
+      const allocated = { amountCents: 'amountCents', platformFeesCents: 'allocatedPlatformFeesCents', paymentFeesCents: 'allocatedPaymentFeesCents', shippingRevenueCents: 'allocatedShippingRevenueCents', shippingCostCents: 'allocatedShippingCostCents', taxCollectedCents: 'allocatedTaxCents' } as const;
+      for (const sale of multiDevice) {
+        const pieces = await prisma.income.findMany({ where: { notes: { contains: `Split from Sale Builder sale ${sale.id} ` } } });
+        expect(pieces.map((p) => p.deviceId).sort(), `sale ${sale.id}`).toEqual(lineDevicesOf(sale.id).sort());
+        const before = incomesBefore.find((i) => i.id === sale.id)!;
+        for (const piece of pieces) {
+          const deviceLines = lines.filter((l) => l.incomeId === sale.id && l.deviceId === piece.deviceId);
+          for (const key of moneyKeys) expect(piece[key], `sale ${sale.id} ${key}`).toBe(deviceLines.reduce((t, l) => t + n((l as any)[allocated[key]]), 0));
+          expect(piece, `sale ${sale.id}`).toMatchObject({ date: before.date, type: before.type, workOrderId: before.workOrderId, customerId: before.customerId, channelId: before.channelId, categoryId: before.categoryId, archivedAt: before.archivedAt, createdAt: before.createdAt });
+        }
+        for (const key of moneyKeys) expect(pieces.reduce((t, p) => t + p[key], 0), `sale ${sale.id} ${key}`).toBe(before[key]);
+      }
 
       // Spending power, money in, fees, tax, the 30 day figures and parts inventory value
       const dashboardAfter = await frozenDashboard();
@@ -402,46 +422,33 @@ describe.skipIf(!hasSnapshot)('production snapshot', () => {
       // Every part's quantity and cost, and every stock movement
       expect(await stock()).toEqual(stockBefore);
 
-      // Where each income ended up: one line device goes on the income, several clear it
-      const lineDevicesOf = (incomeId: string) => [...new Set(lines.filter((l) => l.incomeId === incomeId && l.deviceId).map((l) => l.deviceId as string))];
-      const liveMultiDevice = snapshot.tables.income.filter((i) => !i.archivedAt && lineDevicesOf(i.id).length > 1);
-      for (const original of snapshot.tables.income) {
+      // Where each income ended up: one line device goes on the income; a split sale keeps its
+      // row for the device it named (checked above with its pieces)
+      for (const original of snapshot.tables.income.filter((i) => !multiIds.has(i.id))) {
         const row = await prisma.income.findUniqueOrThrow({ where: { id: original.id }, select: { deviceId: true } });
         const lineDevices = lineDevicesOf(original.id);
-        const expected = lineDevices.length > 1 ? null : lineDevices.length === 1 ? lineDevices[0] : original.deviceId;
-        expect(row.deviceId, `income ${original.id}`).toBe(expected);
+        expect(row.deviceId, `income ${original.id}`).toBe(lineDevices.length === 1 ? lineDevices[0] : original.deviceId);
+      }
+      for (const sale of multiDevice.filter((i) => i.deviceId)) {
+        expect((await prisma.income.findUniqueOrThrow({ where: { id: sale.id } })).deviceId, `sale ${sale.id}`).toBe(sale.deviceId);
       }
 
-      // Every device, row by row
+      // Every device, row by row, against the figures worked out from the lines
       const devicesAfter = await loadDeviceFinancials(deviceIds);
       const skuOf = new Map(snapshot.tables.device.map((d) => [d.id as string, d.sku as string]));
-      const movedDevices: string[] = [];
       for (const id of deviceIds) {
         const was = devicesBefore.get(id)!;
-        const now = devicesAfter.get(id)!;
         const legacy = legacyDevice.get(id)!;
-        // What the lines of a live sale of several devices gave this device
-        const lost = lines.filter((l) => l.deviceId === id && !l.archivedAt && liveMultiDevice.some((i) => i.id === l.incomeId));
-        const sum = (pick: (l: LegacyIncomeLine) => number) => lost.reduce((s, l) => s + pick(l), 0);
-        const expectedIncome = legacy.income - sum((l) => l.amountCents || 0);
-        const expectedFees = legacy.fees - sum((l) => (l.allocatedPlatformFeesCents || 0) + (l.allocatedPaymentFeesCents || 0));
-        const expectedShipping = legacy.shipping - sum((l) => (l.allocatedShippingRevenueCents || 0) - (l.allocatedShippingCostCents || 0));
         const costs = { expensesCents: was.expensesCents, stockedExpensesCents: was.stockedExpensesCents, partsConsumedCents: was.partsConsumedCents, harvestedCents: was.harvestedCents };
-        expect(now, skuOf.get(id)).toEqual({
+        expect(devicesAfter.get(id), skuOf.get(id)).toEqual({
           ...costs,
-          incomeCents: expectedIncome,
-          feesCents: expectedFees,
-          shippingNetCents: expectedShipping,
-          taxCollectedCents: legacy.tax - sum((l) => l.allocatedTaxCents || 0),
-          netCents: expectedIncome - expectedFees + expectedShipping - Math.max(0, was.expensesCents - was.harvestedCents) - was.partsConsumedCents
+          incomeCents: legacy.income,
+          feesCents: legacy.fees,
+          shippingNetCents: legacy.shipping,
+          taxCollectedCents: legacy.tax,
+          netCents: legacy.income - legacy.fees + legacy.shipping - Math.max(0, was.expensesCents - was.harvestedCents) - was.partsConsumedCents
         });
-        const legacyNet = legacy.income - legacy.fees + legacy.shipping - Math.max(0, was.expensesCents - was.harvestedCents) - was.partsConsumedCents;
-        if (now.netCents !== legacyNet) movedDevices.push(`${skuOf.get(id)} ${dollars(legacyNet)} -> ${dollars(now.netCents)}`);
-        else expect(lost, skuOf.get(id)).toEqual([]);
       }
-      // Only devices on a live sale of several devices move, and each by exactly its lines
-      const expectedMoved = new Set(liveMultiDevice.flatMap((i) => lines.filter((l) => l.incomeId === i.id && l.deviceId && (l.amountCents || 0) !== 0).map((l) => skuOf.get(l.deviceId as string))));
-      expect(new Set(movedDevices.map((m) => m.split(' ')[0]))).toEqual(expectedMoved);
 
       // Every work order, row by row: revenue, profit, received and prices
       const workOrdersAfter = await loadWorkOrders();
@@ -467,8 +474,7 @@ describe.skipIf(!hasSnapshot)('production snapshot', () => {
       }
 
       // Listed in the pull request for #14
-      console.log(`Sales of several devices tied to their work order: ${liveMultiDevice.map((i) => i.id).join(', ') || 'none'}`);
-      console.log(`Device nets that move with them: ${movedDevices.join('; ') || 'none'}`);
+      console.log(`Sales of several devices split into one income per device: ${multiDevice.map((i) => `${i.id}${i.archivedAt ? ' (archived)' : ''}`).join(', ') || 'none'}`);
     },
     600000
   );

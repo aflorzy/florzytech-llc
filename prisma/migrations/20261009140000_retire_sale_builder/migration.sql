@@ -12,9 +12,12 @@
 -- The rule, written for the Sale Builder incomes that exist:
 --   * amount, fees, shipping, tax, date and work order stay as they are on the income
 --   * lines naming one device: the income is tied to that device
---   * lines naming several devices: the income is tied to its work order only, so the whole
---     amount is the work order's and no device is credited (decided on #14). The split per
---     device is written into the income's notes so it is not lost.
+--   * lines naming several devices: the income is split into one income per device, each
+--     with that device's lines' amount, fees, shipping and tax, all on the income's work order
+--     (decided on #14). The pieces add up to the income, so every device keeps its share and
+--     the work order and spending power keep the whole. The income keeps its row for the
+--     device it already named (else the largest line); the others are new rows. Every piece's
+--     notes name the sale it came from and the split.
 --   * no line took parts out of stock, so parts and their movements are not touched
 --
 -- Anything else stops the migration here, before any row is changed.
@@ -29,7 +32,7 @@ BEGIN
       h."deviceId" AS head_device,
       h."workOrderId" AS head_work_order,
       COUNT(DISTINCT l."deviceId") AS devices,
-      MIN(l."deviceId") AS line_device,
+      ARRAY_AGG(DISTINCT l."deviceId") FILTER (WHERE l."deviceId" IS NOT NULL) AS line_devices,
       BOOL_OR(l."archivedAt" IS NOT NULL) AS archived_line,
       BOOL_OR(l."type" = 'PART' AND COALESCE(l."quantity", 0) > 0) AS stock_line,
       BOOL_OR(l."workOrderId" IS NOT NULL AND l."workOrderId" IS DISTINCT FROM h."workOrderId") AS other_work_order,
@@ -59,11 +62,15 @@ BEGIN
     UNION ALL
     SELECT "id", 'has a line on a different work order than the income' FROM folded WHERE other_work_order
     UNION ALL
-    SELECT "id", 'names a different device than its one device line' FROM folded
-      WHERE devices = 1 AND head_device IS NOT NULL AND head_device <> line_device
+    SELECT "id", 'names a device that none of its device lines name' FROM folded
+      WHERE devices >= 1 AND head_device IS NOT NULL AND NOT (head_device = ANY (line_devices))
     UNION ALL
-    SELECT "id", 'covers several devices and has no work order to tie the income to' FROM folded
+    SELECT "id", 'covers several devices and has no work order to tie the incomes to' FROM folded
       WHERE devices > 1 AND head_work_order IS NULL
+    UNION ALL
+    -- Archived ones too: the split replaces the income's own amounts with its lines'
+    SELECT "id", 'covers several devices and its device lines do not add up to the income, so splitting it would change the money' FROM folded
+      WHERE devices > 1 AND device_lines_differ
     UNION ALL
     SELECT "id", 'has device lines that do not add up to the income, so the device net would change' FROM folded
       WHERE live AND devices = 1 AND device_lines_differ
@@ -95,33 +102,76 @@ BEGIN
   END IF;
 END $$;
 
--- Several devices on one sale: keep what each device was sold for in the notes, since the
--- income will no longer name them.
-UPDATE "Income" h
-SET "notes" = CONCAT_WS(' | ', NULLIF(TRIM(h."notes"), ''), s.summary)
-FROM (
+-- Several devices on one sale: what each device's lines carried, in the order the pieces
+-- take. Piece 1 keeps the income's own row: the device the income already names, else the
+-- largest line, then by SKU.
+CREATE TEMP TABLE "_sale_builder_split" AS
+SELECT * FROM (
   SELECT
-    l."incomeId",
-    'Sale Builder lines: ' || string_agg(
-      d."sku" || ' ' || to_char(l."amountCents" / 100.0, 'FM999999990.00'),
-      ', ' ORDER BY l."amountCents" DESC, d."sku"
-    ) AS summary
+    l."incomeId" AS income_id,
+    l."deviceId" AS device_id,
+    d."sku" AS sku,
+    SUM(l."amountCents")::int AS amount,
+    SUM(l."allocatedPlatformFeesCents")::int AS platform_fees,
+    SUM(l."allocatedPaymentFeesCents")::int AS payment_fees,
+    SUM(l."allocatedShippingRevenueCents")::int AS shipping_revenue,
+    SUM(l."allocatedShippingCostCents")::int AS shipping_cost,
+    SUM(l."allocatedTaxCents")::int AS tax,
+    ROW_NUMBER() OVER (
+      PARTITION BY l."incomeId"
+      ORDER BY (l."deviceId" = h."deviceId") DESC NULLS LAST, SUM(l."amountCents") DESC, d."sku"
+    ) AS n,
+    COUNT(*) OVER (PARTITION BY l."incomeId") AS pieces
   FROM "IncomeLine" l
+  JOIN "Income" h ON h."id" = l."incomeId"
   JOIN "Device" d ON d."id" = l."deviceId"
-  WHERE l."incomeId" IN (
-    SELECT "incomeId" FROM "IncomeLine" WHERE "deviceId" IS NOT NULL GROUP BY "incomeId" HAVING COUNT(DISTINCT "deviceId") > 1
-  )
-  GROUP BY l."incomeId"
+  GROUP BY l."incomeId", l."deviceId", d."sku", h."deviceId"
 ) s
-WHERE h."id" = s."incomeId";
+WHERE pieces > 1;
 
--- Several devices on one sale: the income belongs to its work order only.
+CREATE TEMP TABLE "_sale_builder_split_note" AS
+SELECT
+  income_id,
+  'Split from Sale Builder sale ' || income_id || ' into ' || COUNT(*) || ' incomes, one per device: ' || string_agg(
+    sku || ' ' || to_char(amount / 100.0, 'FM999999990.00'),
+    ', ' ORDER BY n
+  ) AS note
+FROM "_sale_builder_split"
+GROUP BY income_id;
+
+-- Pieces 2 and on: a new income for each other device, copied from the sale
+INSERT INTO "Income" (
+  "id", "createdAt", "updatedAt", "archivedAt", "date", "type", "amountCents", "deviceId", "channelId", "categoryId",
+  "platformFeesCents", "paymentFeesCents", "shippingRevenueCents", "shippingCostCents", "taxCollectedCents",
+  "notes", "workOrderId", "customerId"
+)
+SELECT
+  gen_random_uuid()::text, h."createdAt", CURRENT_TIMESTAMP, h."archivedAt", h."date", h."type", s.amount, s.device_id, h."channelId", h."categoryId",
+  s.platform_fees, s.payment_fees, s.shipping_revenue, s.shipping_cost, s.tax,
+  CONCAT_WS(' | ', NULLIF(TRIM(h."notes"), ''), m.note), h."workOrderId", h."customerId"
+FROM "_sale_builder_split" s
+JOIN "Income" h ON h."id" = s.income_id
+JOIN "_sale_builder_split_note" m ON m.income_id = s.income_id
+WHERE s.n > 1;
+
+-- Piece 1: the income itself, cut down to its one device
 UPDATE "Income" h
-SET "deviceId" = NULL
-WHERE h."deviceId" IS NOT NULL
-  AND h."id" IN (
-    SELECT "incomeId" FROM "IncomeLine" WHERE "deviceId" IS NOT NULL GROUP BY "incomeId" HAVING COUNT(DISTINCT "deviceId") > 1
-  );
+SET
+  "deviceId" = s.device_id,
+  "amountCents" = s.amount,
+  "platformFeesCents" = s.platform_fees,
+  "paymentFeesCents" = s.payment_fees,
+  "shippingRevenueCents" = s.shipping_revenue,
+  "shippingCostCents" = s.shipping_cost,
+  "taxCollectedCents" = s.tax,
+  "notes" = CONCAT_WS(' | ', NULLIF(TRIM(h."notes"), ''), m.note)
+FROM "_sale_builder_split" s
+JOIN "_sale_builder_split_note" m ON m.income_id = s.income_id
+WHERE h."id" = s.income_id AND s.n = 1;
+
+DROP TABLE "_sale_builder_split_note";
+
+DROP TABLE "_sale_builder_split";
 
 -- One device on the sale: the income is tied to it.
 UPDATE "Income" h

@@ -86,7 +86,7 @@
 - Receipt-wide notes were merged into blank line notes instead of being stored on the receipt (#2); added `Expense.receiptNotes`.
 - Added the `DONOR` device status (#5).
 - A donor's cost could only be charged whole to a single work order, or not at all; parts harvested from a donor now carry their share of its cost into stock and on to the work orders that use them (#11).
-- The Sale Builder kept a second breakdown of a sale that could deduct a part twice and hide plain incomes from a work order's revenue; it was removed and its incomes folded into ordinary ones (#14).
+- The Sale Builder kept a second breakdown of a sale that could deduct a part twice and hide plain incomes from a work order's revenue; it was removed and its incomes folded into ordinary ones, a sale of several devices becoming one income per device, so no figure moved (#14).
 - Editing an income blanked its fees, shipping and tax, because the edit form did not show the stored values (#14).
 - The Income date filter left out incomes on the last day of the range in time zones behind UTC (#14). The Expenses filter still parses its dates the same way.
 

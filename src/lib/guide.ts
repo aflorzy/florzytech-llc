@@ -283,7 +283,7 @@ export const scenarios: GuideScenario[] = [
     watchOut: [
       'Add Income never changes a device\'s status or parts stock. A part leaves stock only when it is added to a work order, so it cannot be taken out twice.',
       'The date filter on the Income page is in calendar days and includes the first and last day.',
-      'Incomes that were recorded with the old Sale Builder are ordinary incomes now. One that covered several devices is tied to its work order only, with what each device sold for kept in its notes.'
+      'Incomes that were recorded with the old Sale Builder are ordinary incomes now. One that covered several devices was split into one income per device on its work order, each with what that device sold for; their notes name the sale they came from.'
     ]
   },
   {

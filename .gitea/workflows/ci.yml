@@ -78,11 +78,17 @@ jobs:
       - name: Integration tests
         run: npm run test:integration
 
+      # The runner's ubuntu-latest image is Ubuntu 26.04, which Playwright 1.58 has no browser
+      # build for. Install and run the 24.04 build instead; drop this once Playwright supports 26.04.
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
+        env:
+          PLAYWRIGHT_HOST_PLATFORM_OVERRIDE: ubuntu24.04-x64
 
       - name: E2E tests
         run: npm run test:e2e
+        env:
+          PLAYWRIGHT_HOST_PLATFORM_OVERRIDE: ubuntu24.04-x64
 
       - name: Upload Playwright traces
         if: failure()

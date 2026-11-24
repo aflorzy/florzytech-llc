@@ -166,3 +166,4 @@
 - 2026-03-01: Tightened e2e deterministic entity selection by matching created device SKU/work-order row notes in `tests/e2e/critical-workflows.spec.ts`.
 - 2026-03-01: Removed duplicated env-parsing implementation by making `tests/utils/env.mjs` canonical and using a thin wrapper in `tests/utils/env-loader.ts`.
 - 2026-10-20: CI moved off the shared Neon test branch to a per-job `postgres:17-alpine` service. A PR's migration that dropped `IncomeLine` had been applied to the shared branch and broke every other branch's tests.
+- 2026-11-24: The runner's `ubuntu-latest` image moved to Ubuntu 26.04 and `npx playwright install` failed ("Playwright does not support chromium on ubuntu26.04-x64"). CI sets `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64` on the Playwright steps until Playwright supports 26.04.
